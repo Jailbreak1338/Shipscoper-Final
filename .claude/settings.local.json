@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx next build:*)",
+      "Bash(python -c:*)",
+      "Bash(node -e:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(gh auth:*)",
+      "Bash(where:*)",
+      "Bash(winget install:*)",
+      "Bash(export PATH=\"$PATH:/c/Program Files/GitHub CLI\")",
+      "Bash(gh repo create:*)",
+      "Bash(git push:*)",
+      "Bash(railway whoami:*)",
+      "Bash(railway list:*)",
+      "Bash(railway link:*)",
+      "Bash(railway up:*)",
+      "Bash(railway service:*)",
+      "Bash(railway status:*)",
+      "Bash(railway --json service list:*)",
+      "Bash(railway services)",
+      "Bash(railway help:*)",
+      "Bash(vercel:*)",
+      "Bash(npm i:*)"
+    ]
+  }
+}
