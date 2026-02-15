@@ -15,8 +15,7 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid job ID' }, { status: 400 });
   }
 
-  const tmpDir = path.join(process.cwd(), 'tmp');
-  const filePath = path.join(tmpDir, `${jobId}.xlsx`);
+  const filePath = path.join('/tmp', `${jobId}.xlsx`);
 
   try {
     await access(filePath);

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, readdir, unlink, stat, mkdir } from 'fs/promises';
+import { writeFile, readdir, unlink, stat } from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
 import { detectColumns, processExcel, ColumnMapping } from '@/lib/excel';
@@ -12,7 +12,7 @@ const MAX_FILE_MB = parseInt(process.env.MAX_FILE_MB || '10', 10);
 const TMP_TTL_MIN = parseInt(process.env.TMP_TTL_MIN || '30', 10);
 
 function getTmpDir(): string {
-  return path.join(process.cwd(), 'tmp');
+  return '/tmp';
 }
 
 async function cleanupTmp(): Promise<void> {
@@ -191,12 +191,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     const uniqueShipments = [...new Set(shipmentNumbers)];
 
-    // Save to tmp
-    const tmpDir = getTmpDir();
-    await mkdir(tmpDir, { recursive: true });
-
+    // Save to tmp (/tmp is writable on Vercel)
     const jobId = crypto.randomUUID();
-    const tmpPath = path.join(tmpDir, `${jobId}.xlsx`);
+    const tmpPath = path.join(getTmpDir(), `${jobId}.xlsx`);
     await writeFile(tmpPath, updatedBuffer);
 
     // Log upload activity
