@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readFile, access } from 'fs/promises';
-import path from 'path';
 
 export async function GET(
   _request: NextRequest,
@@ -15,7 +14,7 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid job ID' }, { status: 400 });
   }
 
-  const filePath = path.join('/tmp', `${jobId}.xlsx`);
+  const filePath = `/tmp/${jobId}.xlsx`;
 
   try {
     await access(filePath);

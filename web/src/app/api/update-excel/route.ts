@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, readdir, unlink, stat } from 'fs/promises';
-import path from 'path';
+import { writeFile } from 'fs/promises';
 import crypto from 'crypto';
 import { detectColumns, processExcel, ColumnMapping } from '@/lib/excel';
 import { getClientIp, extractShipmentNumbers } from '@/lib/security';
@@ -9,34 +8,6 @@ import { cookies } from 'next/headers';
 import * as XLSX from 'xlsx';
 
 const MAX_FILE_MB = parseInt(process.env.MAX_FILE_MB || '10', 10);
-const TMP_TTL_MIN = parseInt(process.env.TMP_TTL_MIN || '30', 10);
-
-function getTmpDir(): string {
-  return '/tmp';
-}
-
-async function cleanupTmp(): Promise<void> {
-  const tmpDir = getTmpDir();
-  try {
-    const files = await readdir(tmpDir);
-    const now = Date.now();
-    const ttlMs = TMP_TTL_MIN * 60 * 1000;
-
-    for (const file of files) {
-      const filePath = path.join(tmpDir, file);
-      try {
-        const stats = await stat(filePath);
-        if (now - stats.mtimeMs > ttlMs) {
-          await unlink(filePath);
-        }
-      } catch {
-        // ignore individual file errors
-      }
-    }
-  } catch {
-    // tmp dir might not exist yet
-  }
-}
 
 async function logUpload(params: {
   userId: string;
@@ -91,9 +62,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const userAgent = request.headers.get('user-agent') || 'unknown';
 
   try {
-    // Run cleanup in background (fire-and-forget)
-    cleanupTmp().catch(() => {});
-
     const contentType = request.headers.get('content-type') || '';
     if (!contentType.includes('multipart/form-data')) {
       return NextResponse.json(
@@ -191,9 +159,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     const uniqueShipments = [...new Set(shipmentNumbers)];
 
-    // Save to tmp (/tmp is writable on Vercel)
+    // Save to /tmp (the only writable directory on Vercel Lambda)
     const jobId = crypto.randomUUID();
-    const tmpPath = path.join(getTmpDir(), `${jobId}.xlsx`);
+    const tmpPath = `/tmp/${jobId}.xlsx`;
     await writeFile(tmpPath, updatedBuffer);
 
     // Log upload activity
