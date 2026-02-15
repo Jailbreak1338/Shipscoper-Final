@@ -58,13 +58,15 @@ export async function POST() {
   try {
     // Path to scraper project root (one level up from web/)
     const projectRoot = path.join(process.cwd(), '..');
-    const venvPath = path.join(projectRoot, 'venv');
 
-    // Determine Python executable
+    // Determine Python executable:
+    // - PYTHON_PATH env var (explicit override for Railway / CI)
+    // - Local venv fallback for development
     const isWindows = process.platform === 'win32';
-    const pythonExec = isWindows
-      ? path.join(venvPath, 'Scripts', 'python.exe')
-      : path.join(venvPath, 'bin', 'python');
+    const venvPython = isWindows
+      ? path.join(projectRoot, 'venv', 'Scripts', 'python.exe')
+      : path.join(projectRoot, 'venv', 'bin', 'python');
+    const pythonExec = process.env.PYTHON_PATH || venvPython;
 
     // Run main.py from the project root
     const scraper = spawn(pythonExec, ['main.py', 'run'], {

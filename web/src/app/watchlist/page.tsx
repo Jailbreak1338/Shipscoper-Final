@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 
 interface Watch {
   id: string;
@@ -23,6 +23,11 @@ export default function WatchlistPage() {
   const [shipmentRef, setShipmentRef] = useState('');
   const [adding, setAdding] = useState(false);
 
+  // Autocomplete
+  const [suggestions, setSuggestions] = useState<{ name: string; name_normalized: string }[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const blurTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const fetchWatches = async () => {
     try {
       const res = await fetch('/api/watchlist');
@@ -39,6 +44,27 @@ export default function WatchlistPage() {
   useEffect(() => {
     fetchWatches();
   }, []);
+
+  // Debounced vessel name search
+  useEffect(() => {
+    if (vesselName.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/vessels/search?q=${encodeURIComponent(vesselName.trim())}`);
+        const json = await res.json();
+        if (res.ok) {
+          setSuggestions(json.vessels);
+          setShowSuggestions(json.vessels.length > 0);
+        }
+      } catch {
+        // ignore search errors
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [vesselName]);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,14 +152,39 @@ export default function WatchlistPage() {
       {/* Add Form */}
       <form onSubmit={handleAdd} style={styles.form}>
         <div style={styles.formRow}>
-          <input
-            type="text"
-            placeholder="Vessel Name (z.B. EVER GIVEN)"
-            value={vesselName}
-            onChange={(e) => setVesselName(e.target.value)}
-            style={styles.input}
-            required
-          />
+          <div style={styles.autocompleteWrap}>
+            <input
+              type="text"
+              placeholder="Vessel Name (z.B. EVER GIVEN)"
+              value={vesselName}
+              onChange={(e) => setVesselName(e.target.value)}
+              onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
+              onBlur={() => {
+                blurTimeout.current = setTimeout(() => setShowSuggestions(false), 150);
+              }}
+              style={styles.input}
+              autoComplete="off"
+              required
+            />
+            {showSuggestions && suggestions.length > 0 && (
+              <div style={styles.dropdown}>
+                {suggestions.map((v) => (
+                  <div
+                    key={v.name_normalized}
+                    style={styles.dropdownItem}
+                    onMouseDown={() => {
+                      if (blurTimeout.current) clearTimeout(blurTimeout.current);
+                      setVesselName(v.name);
+                      setSuggestions([]);
+                      setShowSuggestions(false);
+                    }}
+                  >
+                    {v.name}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <input
             type="text"
             placeholder="Sendungsnummer (optional)"
@@ -359,5 +410,30 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: '6px',
     fontSize: '13px',
     cursor: 'pointer',
+  },
+  autocompleteWrap: {
+    position: 'relative' as const,
+    flex: 1,
+    minWidth: '200px',
+  },
+  dropdown: {
+    position: 'absolute' as const,
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    border: '1px solid #d1d5db',
+    borderRadius: '8px',
+    marginTop: '4px',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+    zIndex: 10,
+    maxHeight: '240px',
+    overflowY: 'auto' as const,
+  },
+  dropdownItem: {
+    padding: '10px 14px',
+    fontSize: '14px',
+    cursor: 'pointer',
+    borderBottom: '1px solid #f3f4f6',
   },
 };
