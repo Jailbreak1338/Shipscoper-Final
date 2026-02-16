@@ -11,6 +11,19 @@ export const metadata: Metadata = {
 
 export const dynamic = 'force-dynamic';
 
+async function isAdmin(userId: string): Promise<boolean> {
+  const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
+  const admin = getSupabaseAdmin();
+
+  const { data } = await admin
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', userId)
+    .single();
+
+  return (data as { role: string } | null)?.role === 'admin';
+}
+
 export default async function RootLayout({
   children,
 }: {
@@ -20,6 +33,8 @@ export default async function RootLayout({
   const {
     data: { session },
   } = await supabase.auth.getSession();
+
+  const userIsAdmin = session ? await isAdmin(session.user.id) : false;
 
   return (
     <html lang="de">
@@ -94,6 +109,19 @@ export default async function RootLayout({
                 >
                   Watchlist
                 </a>
+                {userIsAdmin && (
+                  <a
+                    href="/admin"
+                    style={{
+                      color: '#fbbf24',
+                      textDecoration: 'none',
+                      fontSize: '14px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Admin
+                  </a>
+                )}
               </nav>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
