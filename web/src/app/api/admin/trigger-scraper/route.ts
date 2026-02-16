@@ -1,8 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
-import { spawn } from 'child_process';
-import path from 'path';
 
 async function isAdmin(userId: string): Promise<boolean> {
   // Use service-role client to bypass RLS for the role check
@@ -56,53 +54,64 @@ export async function POST() {
   }
 
   try {
-    // Path to scraper project root (one level up from web/)
-    const projectRoot = path.join(process.cwd(), '..');
+    // Call Railway-hosted scraper API instead of spawning subprocess
+    // Fix by tim-k: Use HTTP webhook instead of subprocess to avoid Python path issues
+    const scraperUrl = process.env.RAILWAY_SCRAPER_URL;
+    const webhookSecret = process.env.WEBHOOK_SECRET;
 
-    // Determine Python executable:
-    // - PYTHON_PATH env var (explicit override for Railway / CI)
-    // - Local venv fallback for development
-    const isWindows = process.platform === 'win32';
-    const venvPython = isWindows
-      ? path.join(projectRoot, 'venv', 'Scripts', 'python.exe')
-      : path.join(projectRoot, 'venv', 'bin', 'python');
-    const pythonExec = process.env.PYTHON_PATH || venvPython;
+    if (!scraperUrl || !webhookSecret) {
+      throw new Error('RAILWAY_SCRAPER_URL or WEBHOOK_SECRET not configured');
+    }
 
-    // Run main.py from the project root
-    const scraper = spawn(pythonExec, ['main.py', 'run'], {
-      cwd: projectRoot,
-      env: {
-        ...process.env,
-        PYTHONUNBUFFERED: '1',
+    const response = await fetch(`${scraperUrl}/webhook/run-scraper`, {
+      method: 'POST',
+      headers: {
+        'X-Webhook-Secret': webhookSecret,
       },
     });
 
-    let output = '';
-    let errorOutput = '';
-    let vesselsScraped = 0;
+    const body = await response.json();
 
-    scraper.stdout.on('data', (chunk: Buffer) => {
-      const text = chunk.toString();
-      output += text;
+    if (!response.ok) {
+      throw new Error(`Scraper API returned ${response.status}: ${JSON.stringify(body)}`);
+    }
 
-      // Try to extract vessel count from output
-      const match = text.match(/(\d+)\s+vessels?/i);
-      if (match) {
-        vesselsScraped = parseInt(match[1], 10);
+    // Poll for completion (Railway runs scraper in background)
+    let attempts = 0;
+    const maxAttempts = 60; // 5 minutes max (60 * 5s)
+    let finalStatus = null;
+
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5s between polls
+
+      const statusResponse = await fetch(`${scraperUrl}/status`, {
+        method: 'GET',
+      });
+
+      if (statusResponse.ok) {
+        const status = await statusResponse.json();
+
+        if (status.status === 'completed' || status.status === 'failed') {
+          finalStatus = status;
+          break;
+        }
       }
-    });
 
-    scraper.stderr.on('data', (chunk: Buffer) => {
-      errorOutput += chunk.toString();
-    });
+      attempts++;
+    }
 
-    // Wait for process to finish
-    const exitCode = await new Promise<number | null>((resolve, reject) => {
-      scraper.on('close', (code) => resolve(code));
-      scraper.on('error', (err) => reject(err));
-    });
+    if (!finalStatus) {
+      // Timeout - scraper still running
+      return NextResponse.json({
+        success: true,
+        run_id: runLog.id,
+        message: 'Scraper started (still running after 5 minutes)',
+        status: 'timeout',
+      });
+    }
 
-    const success = exitCode === 0;
+    const success = finalStatus.status === 'completed';
+    const vesselsScraped = finalStatus.summary?.total || 0;
 
     // Update scraper run log
     await admin
@@ -110,7 +119,7 @@ export async function POST() {
       .update({
         status: success ? 'success' : 'failed',
         vessels_scraped: vesselsScraped,
-        errors: success ? null : (errorOutput || `Exit code ${exitCode}`).slice(0, 5000),
+        errors: success ? null : (finalStatus.error || 'Unknown error').slice(0, 5000),
         completed_at: new Date().toISOString(),
       })
       .eq('id', runLog.id);
@@ -126,7 +135,7 @@ export async function POST() {
       return NextResponse.json(
         {
           success: false,
-          error: errorOutput || `Scraper exited with code ${exitCode}`,
+          error: finalStatus.error || 'Scraper failed',
           run_id: runLog.id,
         },
         { status: 500 }
