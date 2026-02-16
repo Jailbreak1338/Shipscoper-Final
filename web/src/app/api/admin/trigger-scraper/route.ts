@@ -56,11 +56,16 @@ export async function POST() {
   try {
     // Call Railway-hosted scraper API instead of spawning subprocess
     // Fix by tim-k: Use HTTP webhook instead of subprocess to avoid Python path issues
-    const scraperUrl = process.env.RAILWAY_SCRAPER_URL;
+    let scraperUrl = process.env.RAILWAY_SCRAPER_URL;
     const webhookSecret = process.env.WEBHOOK_SECRET;
 
     if (!scraperUrl || !webhookSecret) {
       throw new Error('RAILWAY_SCRAPER_URL or WEBHOOK_SECRET not configured');
+    }
+
+    // Ensure URL has protocol (add https:// if missing)
+    if (!scraperUrl.startsWith('http://') && !scraperUrl.startsWith('https://')) {
+      scraperUrl = `https://${scraperUrl}`;
     }
 
     const response = await fetch(`${scraperUrl}/webhook/run-scraper`, {

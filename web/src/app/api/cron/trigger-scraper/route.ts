@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const scraperUrl = process.env.RAILWAY_SCRAPER_URL;
+  let scraperUrl = process.env.RAILWAY_SCRAPER_URL;
   const webhookSecret = process.env.WEBHOOK_SECRET;
 
   if (!scraperUrl || !webhookSecret) {
@@ -30,6 +30,11 @@ export async function GET(req: NextRequest) {
       { error: 'RAILWAY_SCRAPER_URL or WEBHOOK_SECRET not configured' },
       { status: 500 }
     );
+  }
+
+  // Ensure URL has protocol (add https:// if missing)
+  if (!scraperUrl.startsWith('http://') && !scraperUrl.startsWith('https://')) {
+    scraperUrl = `https://${scraperUrl}`;
   }
 
   try {
