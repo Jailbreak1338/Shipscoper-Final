@@ -137,8 +137,6 @@ class EurogateScraper(BaseScraper):
 
             # Skip "Laden" rows — only keep "Löschen" rows
             lola = row[COL_LOLA]
-            if "Laden" in lola and "schen" not in lola:
-                continue
 
             vessel_name = row[COL_VESSEL].strip()
             if not vessel_name:
@@ -156,6 +154,7 @@ class EurogateScraper(BaseScraper):
                 "etd": etd_str,
                 "callsign": row[COL_CALLSIGN].strip() if len(row) > COL_CALLSIGN else "",
                 "berth": row[COL_BERTH].strip() if len(row) > COL_BERTH else "",
+                "cargo_operation": lola,
                 "status": row[COL_STATUS].strip() if len(row) > COL_STATUS else "",
                 "broker": row[COL_BROKER].strip() if len(row) > COL_BROKER else "",
                 "terminal": "EUROGATE Hamburg",

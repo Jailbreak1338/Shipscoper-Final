@@ -15,7 +15,12 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
 
 
 def load_env(path: Path = ENV_PATH) -> dict:
-    return dotenv_values(path)
+    # Merge .env file values with process environment variables.
+    # Runtime env (Railway/Vercel/local shell) takes precedence.
+    file_env = {k: v for k, v in dotenv_values(path).items() if v is not None}
+    merged = dict(file_env)
+    merged.update(os.environ)
+    return merged
 
 
 config = load_config()
