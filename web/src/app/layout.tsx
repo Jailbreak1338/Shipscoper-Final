@@ -109,6 +109,16 @@ export default async function RootLayout({
                 >
                   Watchlist
                 </a>
+                <a
+                  href="/schedule-search"
+                  style={{
+                    color: 'rgba(255,255,255,0.8)',
+                    textDecoration: 'none',
+                    fontSize: '14px',
+                  }}
+                >
+                  Suche
+                </a>
                 {userIsAdmin && (
                   <a
                     href="/admin"

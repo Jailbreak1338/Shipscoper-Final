@@ -93,6 +93,8 @@ export async function middleware(req: NextRequest) {
   const protectedPaths = [
     '/eta-updater',
     '/dashboard',
+    '/schedule-search',
+    '/api/schedule-search',
     '/admin',
     '/api/update-excel',
     '/api/download',

@@ -13,18 +13,22 @@ interface Watch {
   last_notified_at: string | null;
 }
 
+interface VesselSuggestion {
+  name: string;
+  name_normalized: string;
+}
+
 export default function WatchlistPage() {
   const [watches, setWatches] = useState<Watch[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Add form
   const [vesselName, setVesselName] = useState('');
   const [shipmentRef, setShipmentRef] = useState('');
   const [adding, setAdding] = useState(false);
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
 
-  // Autocomplete
-  const [suggestions, setSuggestions] = useState<{ name: string; name_normalized: string }[]>([]);
+  const [suggestions, setSuggestions] = useState<VesselSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const blurTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -32,8 +36,8 @@ export default function WatchlistPage() {
     try {
       const res = await fetch('/api/watchlist');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      setWatches(json.watches);
+      if (!res.ok) throw new Error(json.error || 'Failed to load watchlist');
+      setWatches(json.watches ?? []);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load watchlist');
     } finally {
@@ -45,24 +49,26 @@ export default function WatchlistPage() {
     fetchWatches();
   }, []);
 
-  // Debounced vessel name search
   useEffect(() => {
     if (vesselName.trim().length < 2) {
       setSuggestions([]);
       return;
     }
+
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(`/api/vessels/search?q=${encodeURIComponent(vesselName.trim())}`);
         const json = await res.json();
         if (res.ok) {
-          setSuggestions(json.vessels);
-          setShowSuggestions(json.vessels.length > 0);
+          const vessels: VesselSuggestion[] = json.vessels ?? [];
+          setSuggestions(vessels);
+          setShowSuggestions(vessels.length > 0);
         }
       } catch {
-        // ignore search errors
+        // Ignore autocomplete failures.
       }
     }, 300);
+
     return () => clearTimeout(timer);
   }, [vesselName]);
 
@@ -82,10 +88,13 @@ export default function WatchlistPage() {
         }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
+      if (!res.ok) throw new Error(json.error || 'Failed to add vessel');
+
       setWatches((prev) => [json.watch, ...prev]);
       setVesselName('');
       setShipmentRef('');
+      setSuggestions([]);
+      setShowSuggestions(false);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to add vessel');
     } finally {
@@ -103,12 +112,10 @@ export default function WatchlistPage() {
         }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      setWatches((prev) =>
-        prev.map((w) => (w.id === watch.id ? json.watch : w))
-      );
+      if (!res.ok) throw new Error(json.error || 'Failed to update watch');
+      setWatches((prev) => prev.map((w) => (w.id === watch.id ? json.watch : w)));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to update');
+      setError(err instanceof Error ? err.message : 'Failed to update watch');
     }
   };
 
@@ -118,16 +125,33 @@ export default function WatchlistPage() {
       const res = await fetch(`/api/watchlist/${id}`, { method: 'DELETE' });
       if (!res.ok) {
         const json = await res.json();
-        throw new Error(json.error);
+        throw new Error(json.error || 'Failed to delete watch');
       }
       setWatches((prev) => prev.filter((w) => w.id !== id));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to delete');
+      setError(err instanceof Error ? err.message : 'Failed to delete watch');
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    setSendingTestEmail(true);
+    setError('');
+    try {
+      const res = await fetch('/api/watchlist/test-email', { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Test email failed');
+
+      const target = typeof json.email === 'string' ? json.email : 'deine hinterlegte E-Mail';
+      alert(`Test-E-Mail gesendet an ${target}`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Test email failed');
+    } finally {
+      setSendingTestEmail(false);
     }
   };
 
   const formatEta = (iso: string | null) => {
-    if (!iso) return '—';
+    if (!iso) return '-';
     return new Date(iso).toLocaleDateString('de-DE', {
       timeZone: 'Europe/Berlin',
       day: '2-digit',
@@ -136,20 +160,28 @@ export default function WatchlistPage() {
     });
   };
 
-  const formatDate = (iso: string) => {
-    return new Date(iso).toLocaleString('de-DE', {
+  const formatDate = (iso: string) =>
+    new Date(iso).toLocaleString('de-DE', {
       timeZone: 'Europe/Berlin',
     });
-  };
 
   return (
     <div style={styles.container}>
       <h1 style={styles.pageTitle}>Vessel Watchlist</h1>
       <p style={styles.subtitle}>
-        Vessels beobachten und bei ETA-Änderungen benachrichtigt werden.
+        Vessels beobachten und bei ETA-Aenderungen benachrichtigt werden.
       </p>
 
-      {/* Add Form */}
+      <div style={{ marginBottom: '14px' }}>
+        <button
+          onClick={handleSendTestEmail}
+          disabled={sendingTestEmail}
+          style={styles.btnTestEmail}
+        >
+          {sendingTestEmail ? 'Sende Test-E-Mail...' : 'Test-E-Mail senden'}
+        </button>
+      </div>
+
       <form onSubmit={handleAdd} style={styles.form}>
         <div style={styles.formRow}>
           <div style={styles.autocompleteWrap}>
@@ -158,7 +190,9 @@ export default function WatchlistPage() {
               placeholder="Vessel Name (z.B. EVER GIVEN)"
               value={vesselName}
               onChange={(e) => setVesselName(e.target.value)}
-              onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
+              onFocus={() => {
+                if (suggestions.length > 0) setShowSuggestions(true);
+              }}
               onBlur={() => {
                 blurTimeout.current = setTimeout(() => setShowSuggestions(false), 150);
               }}
@@ -193,41 +227,33 @@ export default function WatchlistPage() {
             style={{ ...styles.input, maxWidth: '220px' }}
           />
           <button type="submit" disabled={adding} style={styles.btnAdd}>
-            {adding ? 'Wird hinzugefügt...' : 'Hinzufügen'}
+            {adding ? 'Wird hinzugefuegt...' : 'Hinzufuegen'}
           </button>
         </div>
       </form>
 
-      {/* Error */}
       {error && (
         <div style={styles.error}>
           {error}
-          <button
-            onClick={() => setError('')}
-            style={styles.errorClose}
-          >
-            ×
+          <button onClick={() => setError('')} style={styles.errorClose}>
+            x
           </button>
         </div>
       )}
 
-      {/* Loading */}
       {loading && <p style={styles.loadingText}>Watchlist wird geladen...</p>}
 
-      {/* Empty state */}
       {!loading && watches.length === 0 && (
         <div style={styles.empty}>
           <p style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>
             Noch keine Vessels auf der Watchlist
           </p>
           <p style={{ margin: '8px 0 0', color: '#666' }}>
-            Füge oben ein Vessel hinzu, um bei ETA-Änderungen benachrichtigt zu
-            werden.
+            Fuege oben ein Vessel hinzu, um bei ETA-Aenderungen benachrichtigt zu werden.
           </p>
         </div>
       )}
 
-      {/* Table */}
       {watches.length > 0 && (
         <div style={styles.tableWrap}>
           <table style={styles.table}>
@@ -237,50 +263,33 @@ export default function WatchlistPage() {
                 <th style={styles.th}>Sendung</th>
                 <th style={styles.th}>Letzte ETA</th>
                 <th style={styles.th}>Benachrichtigung</th>
-                <th style={styles.th}>Hinzugefügt</th>
+                <th style={styles.th}>Hinzugefuegt</th>
                 <th style={styles.th}></th>
               </tr>
             </thead>
             <tbody>
               {watches.map((watch) => (
                 <tr key={watch.id}>
-                  <td style={{ ...styles.td, fontWeight: 600 }}>
-                    {watch.vessel_name}
-                  </td>
-                  <td style={styles.td}>
-                    {watch.shipment_reference || '—'}
-                  </td>
+                  <td style={{ ...styles.td, fontWeight: 600 }}>{watch.vessel_name}</td>
+                  <td style={styles.td}>{watch.shipment_reference || '-'}</td>
                   <td style={styles.td}>{formatEta(watch.last_known_eta)}</td>
                   <td style={styles.td}>
                     <button
                       onClick={() => handleToggleNotification(watch)}
                       style={{
                         ...styles.btnToggle,
-                        backgroundColor: watch.notification_enabled
-                          ? '#dcfce7'
-                          : '#f3f4f6',
-                        color: watch.notification_enabled
-                          ? '#15803d'
-                          : '#888',
+                        backgroundColor: watch.notification_enabled ? '#dcfce7' : '#f3f4f6',
+                        color: watch.notification_enabled ? '#15803d' : '#888',
                       }}
                     >
                       {watch.notification_enabled ? 'Aktiv' : 'Aus'}
                     </button>
                   </td>
-                  <td
-                    style={{
-                      ...styles.td,
-                      color: '#666',
-                      fontSize: '13px',
-                    }}
-                  >
+                  <td style={{ ...styles.td, color: '#666', fontSize: '13px' }}>
                     {formatDate(watch.created_at)}
                   </td>
                   <td style={styles.td}>
-                    <button
-                      onClick={() => handleDelete(watch.id)}
-                      style={styles.btnDelete}
-                    >
+                    <button onClick={() => handleDelete(watch.id)} style={styles.btnDelete}>
                       Entfernen
                     </button>
                   </td>
@@ -316,7 +325,12 @@ const styles: Record<string, CSSProperties> = {
   formRow: {
     display: 'flex',
     gap: '12px',
-    flexWrap: 'wrap' as const,
+    flexWrap: 'wrap',
+  },
+  autocompleteWrap: {
+    position: 'relative',
+    flex: 1,
+    minWidth: '200px',
   },
   input: {
     flex: 1,
@@ -327,6 +341,26 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: '8px',
     outline: 'none',
   },
+  dropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    border: '1px solid #d1d5db',
+    borderRadius: '8px',
+    marginTop: '4px',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+    zIndex: 10,
+    maxHeight: '240px',
+    overflowY: 'auto',
+  },
+  dropdownItem: {
+    padding: '10px 14px',
+    fontSize: '14px',
+    cursor: 'pointer',
+    borderBottom: '1px solid #f3f4f6',
+  },
   btnAdd: {
     padding: '10px 20px',
     backgroundColor: '#0066cc',
@@ -336,7 +370,17 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 600,
     fontSize: '14px',
     cursor: 'pointer',
-    whiteSpace: 'nowrap' as const,
+    whiteSpace: 'nowrap',
+  },
+  btnTestEmail: {
+    padding: '10px 14px',
+    backgroundColor: '#0ea5e9',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
   },
   error: {
     padding: '12px 16px',
@@ -354,17 +398,17 @@ const styles: Record<string, CSSProperties> = {
     background: 'none',
     border: 'none',
     color: '#b91c1c',
-    fontSize: '20px',
+    fontSize: '16px',
     cursor: 'pointer',
     padding: '0 4px',
   },
   loadingText: {
-    textAlign: 'center' as const,
+    textAlign: 'center',
     color: '#666',
     padding: '32px',
   },
   empty: {
-    textAlign: 'center' as const,
+    textAlign: 'center',
     padding: '48px 24px',
     backgroundColor: '#fff',
     borderRadius: '12px',
@@ -378,16 +422,16 @@ const styles: Record<string, CSSProperties> = {
   },
   table: {
     width: '100%',
-    borderCollapse: 'collapse' as const,
+    borderCollapse: 'collapse',
   },
   th: {
     padding: '12px 16px',
-    textAlign: 'left' as const,
+    textAlign: 'left',
     fontWeight: 600,
     fontSize: '13px',
     color: '#666',
     borderBottom: '1px solid #e5e7eb',
-    whiteSpace: 'nowrap' as const,
+    whiteSpace: 'nowrap',
   },
   td: {
     padding: '12px 16px',
@@ -410,30 +454,5 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: '6px',
     fontSize: '13px',
     cursor: 'pointer',
-  },
-  autocompleteWrap: {
-    position: 'relative' as const,
-    flex: 1,
-    minWidth: '200px',
-  },
-  dropdown: {
-    position: 'absolute' as const,
-    top: '100%',
-    left: 0,
-    right: 0,
-    backgroundColor: '#fff',
-    border: '1px solid #d1d5db',
-    borderRadius: '8px',
-    marginTop: '4px',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-    zIndex: 10,
-    maxHeight: '240px',
-    overflowY: 'auto' as const,
-  },
-  dropdownItem: {
-    padding: '10px 14px',
-    fontSize: '14px',
-    cursor: 'pointer',
-    borderBottom: '1px solid #f3f4f6',
   },
 };
