@@ -184,9 +184,52 @@ class HHLAScraper(BaseScraper):
                 break
 
         if target_table is None:
-            logger.warning("[hhla] Could not identify data table/header row")
-            self.save_debug(self.html)
-            return []
+            logger.warning(
+                "[hhla] Could not identify data table/header row by names; "
+                "falling back to largest-table fixed-column parser"
+            )
+            tables_by_size = sorted(tables, key=lambda t: len(t.find_all("tr")), reverse=True)
+            if not tables_by_size:
+                self.save_debug(self.html)
+                return []
+            target_table = tables_by_size[0]
+            rows = target_table.find_all("tr")
+            vessels: list[dict] = []
+
+            # Observed HHLA report column order (0-based):
+            # 0 ankunft(soll), 1 ankunft, 2 terminal, 3 funkcode, 4 schiffsname,
+            # 5 importreise, 6 exportreise, 7 loeschbeginn, 8 loeschende,
+            # 9 ladebeginn, 10 ladeende, 11 abfahrt(soll), 12 abfahrt, 13 schiffstyp
+            for row in rows:
+                cells = row.find_all("td")
+                if len(cells) < 14:
+                    continue
+                texts = [c.get_text(" ", strip=True) for c in cells]
+
+                vessel_name = texts[4].strip()
+                if not vessel_name or vessel_name.lower() == "schiffsname":
+                    continue
+
+                terminal_raw = texts[2].strip()
+                terminal = terminal_raw if terminal_raw else "Hamburg"
+                if terminal and not terminal.upper().startswith("HHLA"):
+                    terminal = f"HHLA {terminal}"
+
+                vessels.append({
+                    "vessel_name": vessel_name,
+                    "eta": texts[0].strip(),
+                    "eta_actual": texts[1].strip(),
+                    "etd": texts[11].strip(),
+                    "etd_actual": texts[12].strip(),
+                    "callsign": texts[3].strip(),
+                    "terminal": terminal,
+                    "vessel_type": texts[13].strip(),
+                    "voyage_import": texts[5].strip(),
+                    "voyage_export": texts[6].strip(),
+                })
+
+            logger.info(f"[hhla] Parsed {len(vessels)} vessels (fixed-column fallback)")
+            return vessels
 
         rows = target_table.find_all("tr")
         vessels: list[dict] = []
