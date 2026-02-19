@@ -129,6 +129,11 @@ python main.py clean --dry-run         # Nur anzeigen
 python main.py status
 ```
 
+### Smoke-Test (lokal)
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/smoke_test.ps1
+```
+
 ## Deployment
 
 ### Produktiv: Vercel + Railway

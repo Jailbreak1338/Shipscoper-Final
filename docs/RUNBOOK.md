@@ -47,6 +47,18 @@ npm run start
 npm run generate-sample
 ```
 
+### 2.4 Unified smoke test
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/smoke_test.ps1
+```
+
+Optional fast mode (skip web build):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/smoke_test.ps1 -SkipWebBuild
+```
+
 ### 2.3 Production Deployment
 
 - Web: Vercel (`web/`)
