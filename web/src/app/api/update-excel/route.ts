@@ -3,6 +3,7 @@ import { writeFile } from 'fs/promises';
 import crypto from 'crypto';
 import { detectColumns, processExcel, ColumnMapping } from '@/lib/excel';
 import { getClientIp, extractShipmentNumbers } from '@/lib/security';
+import { cleanupExpiredTmpFiles, getTmpFilePath, TMP_TTL_MIN } from '@/lib/tmpFiles';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import * as XLSX from 'xlsx';
@@ -159,9 +160,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     const uniqueShipments = [...new Set(shipmentNumbers)];
 
-    // Save to /tmp (the only writable directory on Vercel Lambda)
+    // Cleanup stale temp files before writing the new artifact.
+    await cleanupExpiredTmpFiles();
+
+    // Save to /tmp (the writable directory on Vercel Lambda)
     const jobId = crypto.randomUUID();
-    const tmpPath = `/tmp/${jobId}.xlsx`;
+    const tmpPath = getTmpFilePath(jobId);
     await writeFile(tmpPath, updatedBuffer);
 
     // Log upload activity
@@ -192,6 +196,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         skippedOld: result.skippedOld,
         unmatchedNames: result.unmatchedNames,
       },
+      file_ttl_minutes: TMP_TTL_MIN,
     });
   } catch (error) {
     console.error('update-excel error:', error);

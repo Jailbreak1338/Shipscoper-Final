@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readFile, access } from 'fs/promises';
+import { readFile, access, unlink } from 'fs/promises';
+import { getTmpFilePath, isTmpFileExpired, TMP_TTL_MIN } from '@/lib/tmpFiles';
 
 export async function GET(
   _request: NextRequest,
@@ -14,7 +15,7 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid job ID' }, { status: 400 });
   }
 
-  const filePath = `/tmp/${jobId}.xlsx`;
+  const filePath = getTmpFilePath(jobId);
 
   try {
     await access(filePath);
@@ -22,13 +23,28 @@ export async function GET(
     return NextResponse.json(
       {
         error:
-          'File not found or expired. Files are automatically deleted after 30 minutes. Please re-upload your Excel file.',
+          `File not found or expired. Files are automatically deleted after ${TMP_TTL_MIN} minutes. Please re-upload your Excel file.`,
       },
       { status: 404 }
     );
   }
 
   try {
+    if (await isTmpFileExpired(filePath)) {
+      try {
+        await unlink(filePath);
+      } catch {
+        // Ignore race if file was already deleted.
+      }
+      return NextResponse.json(
+        {
+          error:
+            `File not found or expired. Files are automatically deleted after ${TMP_TTL_MIN} minutes. Please re-upload your Excel file.`,
+        },
+        { status: 404 }
+      );
+    }
+
     const fileBuffer = await readFile(filePath);
 
     return new NextResponse(fileBuffer, {
