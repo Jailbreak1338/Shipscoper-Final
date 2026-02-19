@@ -1,72 +1,107 @@
 import asyncio
+import re
 import time
-from pathlib import Path
+
+import requests
 
 from scraper.base_scraper import BaseScraper
 from utils import logger
 
 HHLA_URL = "https://coast.hhla.de/report?id=Standard-Report-Segelliste"
 
-# Known headers from the HHLA Segelliste report table
+# Normalized header token -> output field
 HHLA_COLUMNS = {
-    "ankunft(soll)": "eta_planned",
+    "ankunftsoll": "eta_planned",
     "ankunft": "eta_actual",
     "terminal": "terminal",
     "funkcode": "callsign",
     "schiffsname": "vessel_name",
     "importreise": "voyage_import",
     "exportreise": "voyage_export",
-    "löschbeginn": "discharge_start",
-    "löschende": "discharge_end",
+    "loeschbeginn": "discharge_start",
+    "loeschende": "discharge_end",
     "ladebeginn": "load_start",
     "ladeende": "load_end",
-    "abfahrt(soll)": "etd_planned",
+    "abfahrtsoll": "etd_planned",
     "abfahrt": "etd_actual",
     "schiffstyp": "vessel_type",
 }
 
 
-class HHLAScraper(BaseScraper):
-    """Scraper for HHLA vessel schedule (coast.hhla.de).
+def _normalize_header(value: str) -> str:
+    """Normalize HHLA table header text to matching tokens."""
+    text = (value or "").strip().lower()
+    text = (
+        text.replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("ß", "ss")
+    )
+    text = re.sub(r"\(soll\)", "soll", text)
+    text = re.sub(r"[^a-z0-9]+", "", text)
+    return text
 
-    This site is a JavaScript SPA — requires Playwright for rendering.
-    Table: 14 columns with vessel arrivals for past 4 weeks.
-    """
+
+class HHLAScraper(BaseScraper):
+    """Scraper for HHLA vessel schedule (coast.hhla.de)."""
 
     def __init__(self):
         super().__init__("hhla")
 
     def fetch(self) -> str:
-        logger.info("[hhla] Launching Playwright (headless)...")
+        """Fetch HHLA report HTML.
 
+        Strategy:
+        1) Plain HTTP GET (fast path; page currently server-renders table).
+        2) Playwright fallback if HTTP response has no table.
+        """
         last_error = None
-        base_timeout = self.timeout
         attempts = max(1, int(self.retry_attempts))
 
         for attempt in range(1, attempts + 1):
-            # Increase timeout per attempt to handle transient slow page loads.
-            timeout_this_attempt = base_timeout + ((attempt - 1) * 10)
+            timeout_this_attempt = self.timeout + ((attempt - 1) * 10)
             try:
                 logger.info(
                     f"[hhla] Fetch attempt {attempt}/{attempts} "
                     f"(timeout={timeout_this_attempt}s)"
                 )
-                # Use asyncio.run so this works reliably in worker threads
-                # (e.g. Flask background thread on Railway).
-                return asyncio.run(self._fetch_async(timeout_this_attempt))
-            except Exception as e:
-                last_error = e
-                if attempt >= attempts:
-                    break
+                return self._fetch_http(timeout_this_attempt)
+            except Exception as http_err:
+                last_error = http_err
+                logger.warning(f"[hhla] HTTP fetch failed: {http_err}")
 
-                backoff = max(1, self.retry_delay) * attempt
-                logger.warning(
-                    f"[hhla] Attempt {attempt} failed: {e}. "
-                    f"Retrying in {backoff}s..."
-                )
-                time.sleep(backoff)
+                try:
+                    logger.info("[hhla] Falling back to Playwright...")
+                    return asyncio.run(self._fetch_async(timeout_this_attempt))
+                except Exception as pw_err:
+                    last_error = pw_err
+                    if attempt >= attempts:
+                        break
+                    backoff = max(1, self.retry_delay) * attempt
+                    logger.warning(
+                        f"[hhla] Playwright attempt {attempt} failed: {pw_err}. "
+                        f"Retrying in {backoff}s..."
+                    )
+                    time.sleep(backoff)
 
         raise RuntimeError(f"HHLA fetch failed after {attempts} attempts: {last_error}")
+
+    def _fetch_http(self, timeout_seconds: int) -> str:
+        response = requests.get(
+            HHLA_URL,
+            timeout=timeout_seconds,
+            headers={"User-Agent": self.user_agent},
+        )
+        response.raise_for_status()
+        html = response.text
+
+        # If the page does not contain any table, dynamic rendering may be required.
+        if "<table" not in html.lower():
+            raise RuntimeError("No table in HTTP response")
+
+        self.html = html
+        logger.info(f"[hhla] HTTP fetch OK - {len(self.html)} bytes received")
+        return self.html
 
     async def _fetch_async(self, timeout_seconds: int) -> str:
         from playwright.async_api import async_playwright
@@ -79,27 +114,21 @@ class HHLAScraper(BaseScraper):
             )
 
             try:
-                logger.info(f"[hhla] Navigating to coast.hhla.de...")
                 await page.goto(
                     HHLA_URL,
                     wait_until="networkidle",
                     timeout=timeout_seconds * 1000,
                 )
-
-                logger.info("[hhla] Waiting for table to render...")
                 await page.wait_for_selector(
                     "table",
                     timeout=max(15000, timeout_seconds * 1000),
                 )
-
                 self.html = await page.content()
-                logger.info(f"[hhla] OK - {len(self.html)} bytes received")
-
+                logger.info(f"[hhla] Playwright fetch OK - {len(self.html)} bytes received")
             except Exception as e:
                 logger.error(f"[hhla] Playwright error: {e}")
                 try:
-                    content = await page.content()
-                    self.save_debug(content)
+                    self.save_debug(await page.content())
                 except Exception:
                     pass
                 raise
@@ -116,78 +145,75 @@ class HHLAScraper(BaseScraper):
         from bs4 import BeautifulSoup
 
         soup = BeautifulSoup(self.html, "html.parser")
-        vessels = []
-
         tables = soup.find_all("table")
         if not tables:
-            logger.warning("[hhla] No <table> found after JS rendering")
+            logger.warning("[hhla] No <table> found")
             self.save_debug(self.html)
             return []
 
-        logger.info(f"[hhla] Found {len(tables)} table(s)")
+        target_table = None
+        header_idx = -1
+        col_map: dict[str, int] = {}
 
-        # The data table is the largest one
-        target_table = max(tables, key=lambda t: len(t.find_all("tr")))
-        rows = target_table.find_all("tr")
-        logger.info(f"[hhla] Target table: {len(rows)} rows")
+        for table in tables:
+            rows = table.find_all("tr")
+            for i, row in enumerate(rows):
+                cells = row.find_all(["th", "td"])
+                header_tokens = [_normalize_header(c.get_text(" ", strip=True)) for c in cells]
+                if not header_tokens:
+                    continue
 
-        # Row 0 = count header ("951 Schiffabfertigungen")
-        # Row 1 = real column headers (14 columns)
-        # Row 2 = empty filter row
-        # Row 3+ = data
-        if len(rows) < 4:
-            logger.warning("[hhla] Table too small")
+                has_vessel = "schiffsname" in header_tokens
+                has_eta = "ankunftsoll" in header_tokens
+                if not (has_vessel and has_eta):
+                    continue
+
+                table_col_map: dict[str, int] = {}
+                for idx, token in enumerate(header_tokens):
+                    field = HHLA_COLUMNS.get(token)
+                    if field and field not in table_col_map:
+                        table_col_map[field] = idx
+
+                if "vessel_name" in table_col_map:
+                    target_table = table
+                    header_idx = i
+                    col_map = table_col_map
+                    break
+
+            if target_table is not None:
+                break
+
+        if target_table is None:
+            logger.warning("[hhla] Could not identify data table/header row")
+            self.save_debug(self.html)
             return []
 
-        # Parse headers from row 1
-        header_cells = rows[1].find_all(["th", "td"])
-        headers = [c.get_text(strip=True).lower() for c in header_cells]
-        logger.info(f"[hhla] Headers ({len(headers)}): {headers}")
+        rows = target_table.find_all("tr")
+        vessels: list[dict] = []
 
-        # Build column index map — match longer keys first to avoid
-        # "ankunft" matching "ankunft(soll)" before the exact key does
-        col_map = {}
-        sorted_keys = sorted(HHLA_COLUMNS.keys(), key=len, reverse=True)
-        for idx, header in enumerate(headers):
-            normalized = header.replace("\u00f6", "ö").replace("\u00fc", "ü").replace("\u00e4", "ä").replace("\u00df", "ß")
-            for key in sorted_keys:
-                field = HHLA_COLUMNS[key]
-                if key == normalized and field not in col_map:
-                    col_map[field] = idx
-                    break
-            else:
-                # Fallback: substring match for unknown/new headers
-                for key in sorted_keys:
-                    field = HHLA_COLUMNS[key]
-                    if key in normalized and field not in col_map:
-                        col_map[field] = idx
-                        break
-
-        logger.info(f"[hhla] Column mapping: {col_map}")
-
-        # Parse data rows (skip row 0=title, 1=headers, 2=empty filter)
-        for row in rows[3:]:
+        for row in rows[header_idx + 1 :]:
             cells = row.find_all("td")
-            if not cells or len(cells) < 5:
+            if not cells:
                 continue
-
-            texts = [c.get_text(strip=True) for c in cells]
+            texts = [c.get_text(" ", strip=True) for c in cells]
 
             def get_field(field: str) -> str:
                 idx = col_map.get(field)
                 if idx is not None and idx < len(texts):
-                    return texts[idx]
+                    return texts[idx].strip()
                 return ""
 
-            name = get_field("vessel_name")
-            if not name:
+            vessel_name = get_field("vessel_name")
+            if not vessel_name:
                 continue
 
             terminal_raw = get_field("terminal")
-            terminal = f"HHLA {terminal_raw}" if terminal_raw else "HHLA Hamburg"
+            terminal = terminal_raw if terminal_raw else "Hamburg"
+            if terminal and not terminal.upper().startswith("HHLA"):
+                terminal = f"HHLA {terminal}"
 
             vessel = {
-                "vessel_name": name,
+                "vessel_name": vessel_name,
                 "eta": get_field("eta_planned"),
                 "eta_actual": get_field("eta_actual"),
                 "etd": get_field("etd_planned"),
