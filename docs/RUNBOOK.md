@@ -124,6 +124,10 @@ Use:
 10. Encoding glitches (umlauts):
    - Ensure UTF-8 without BOM in editor and git settings.
 
+Mail workflow semantics:
+- Incoming attachments are trigger artifacts only (archived in `data/inbox`).
+- Reply attachment is always a newly generated live-scrape report.
+
 ## 7. External Ops Steps
 
 If environment/UI changes are needed outside the repo, follow `OPS-CHECKLIST.md`.

@@ -8,7 +8,7 @@ Automatisiertes Scraping von Schiffsankunftszeiten (ETAs) der Hamburger Containe
 - **HHLA Scraper** — Playwright-basiert (JavaScript SPA), 14 Spalten
 - **Cross-Matching** — Fuzzy Name Matching + ETA-Datum zwischen Terminals
 - **Excel-Export** — Formatierte Tabelle mit Auto-Spaltenbreiten, Freeze Panes
-- **E-Mail-Automatisierung** — IMAP/SMTP: empfängt Excel, aktualisiert, sendet zurück
+- **E-Mail-Automatisierung** — IMAP/SMTP: Excel-Anhang als Trigger, erzeugt frischen Live-Report und sendet ihn zurück
 - **CLI-Interface** — Click-basiert mit mehreren Commands
 - **Logging** — Loguru mit Rotation und File-Output
 
@@ -112,6 +112,10 @@ python main.py process --output report.xlsx
 python main.py email                   # Einmalig prüfen
 python main.py email --watch           # Dauerhaft überwachen
 ```
+
+Hinweis:
+- Eingehende Excel-Anhänge werden archiviert (`data/inbox`), aber nicht direkt transformiert.
+- Die Antwort enthält immer einen frisch erzeugten Report aus dem Live-Scraping.
 
 ### Aufräumen
 ```bash

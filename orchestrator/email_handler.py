@@ -1,4 +1,4 @@
-"""Email automation: fetch incoming Excel, process, reply with updated version."""
+"""Email automation: mailbox trigger + full pipeline report reply."""
 
 import email
 import imaplib
@@ -23,7 +23,14 @@ ALLOWED_SENDERS = [s.lower() for s in EMAIL_CFG.get("allowed_senders", [])]
 
 
 class EmailAutomation:
-    """IMAP/SMTP email handler for ETA automation workflow."""
+    """IMAP/SMTP email handler for the email-triggered pipeline workflow.
+
+    Workflow semantics:
+    - Incoming Excel attachments are used as workflow triggers and archived.
+    - The attachment content itself is not used for transformation.
+    - A fresh report is generated from live scraping (Eurogate + HHLA)
+      and sent back to matched recipients.
+    """
 
     def __init__(self):
         self.address = env.get("EMAIL_ADDRESS", "")
@@ -96,8 +103,8 @@ class EmailAutomation:
         logger.info(f"[email] {len(results)} email(s) to process")
         return results
 
-    def download_attachment(self, msg: email.message.Message) -> Path | None:
-        """Extract first .xlsx attachment and save to data/inbox/."""
+    def archive_attachment(self, msg: email.message.Message) -> Path | None:
+        """Archive first .xlsx attachment to data/inbox/ for traceability."""
         for part in msg.walk():
             filename = part.get_filename()
             if not filename or not filename.lower().endswith(".xlsx"):
@@ -163,7 +170,7 @@ class EmailAutomation:
             logger.info(f"[email] Marked {msg_id} as processed")
 
     def run_email_workflow(self):
-        """Complete email workflow: fetch -> scrape -> process -> reply."""
+        """Run email-triggered full pipeline and reply with fresh report."""
         from orchestrator.pipeline import run_full
 
         emails = self.fetch_new_emails()
@@ -171,13 +178,14 @@ class EmailAutomation:
             logger.info("[email] No emails to process")
             return
 
-        # Run pipeline once for all emails
+        # Run pipeline once for all matched emails.
+        # This is intentionally independent of attachment content.
         summary = run_full()
 
         for item in emails:
             try:
-                # Download attachment (for reference/logging)
-                self.download_attachment(item["msg"])
+                # Archive attachment for traceability only
+                self.archive_attachment(item["msg"])
 
                 # Extract sender email address
                 sender_raw = item["sender"]
