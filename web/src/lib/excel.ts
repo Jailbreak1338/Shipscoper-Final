@@ -17,12 +17,14 @@ const SHIPMENT_CANDIDATES = [
 const VESSEL_CANDIDATES = ['vessel', 'vesselname', 'schiff', 'ship'];
 const ETA_CANDIDATES = ['eta', 'ankunft', 'arrival', 'etasoll', 'ankunftsoll'];
 const TERMINAL_CANDIDATES = ['terminal', 'ct', 'terminal name'];
+const CUSTOMS_CANDIDATES = ['verzollt', 'zoll', 'customs', 'custom'];
 
 export interface ColumnMapping {
   shipmentCol?: string;
   vesselCol: string;
   etaCols: string[];
   terminalCol?: string;
+  customsCol?: string;
 }
 
 export interface DetectedColumns {
@@ -31,6 +33,7 @@ export interface DetectedColumns {
   etaCol: string | null;
   etaCols: string[];
   terminalCol: string | null;
+  customsCol: string | null;
   allColumns: string[];
 }
 
@@ -50,8 +53,20 @@ export interface UpdateResult {
   matched: number;
   unmatched: number;
   skippedOld: number;
+  skippedCustoms: number;
   results: MatchResult[];
   unmatchedNames: string[];
+  unmatchedRows: Array<{
+    shipmentRef: string | null;
+    vesselName: string;
+    eta: string | null;
+  }>;
+  etaChanges: Array<{
+    shipmentRef: string | null;
+    vesselName: string;
+    oldEta: string | null;
+    newEta: string | null;
+  }>;
 }
 
 /**
@@ -79,6 +94,7 @@ export function detectColumns(headers: string[]): DetectedColumns {
   const shipmentCol = findByCandidates(SHIPMENT_CANDIDATES);
   const vesselCol = findByCandidates(VESSEL_CANDIDATES);
   const terminalCol = findByCandidates(TERMINAL_CANDIDATES);
+  const customsCol = findByCandidates(CUSTOMS_CANDIDATES);
 
   // Find ALL columns that match ETA patterns
   const etaCols: string[] = [];
@@ -90,7 +106,15 @@ export function detectColumns(headers: string[]): DetectedColumns {
   }
   const etaCol = etaCols[0] ?? null;
 
-  return { shipmentCol, vesselCol, etaCol, etaCols, terminalCol, allColumns: headers };
+  return {
+    shipmentCol,
+    vesselCol,
+    etaCol,
+    etaCols,
+    terminalCol,
+    customsCol,
+    allColumns: headers,
+  };
 }
 
 /**
@@ -172,8 +196,28 @@ function cellToDate(value: ExcelJS.CellValue): Date | null {
 // ---------------------------------------------------------------------------
 
 const EMPTY_RESULT: UpdateResult = {
-  totalRows: 0, matched: 0, unmatched: 0, skippedOld: 0, results: [], unmatchedNames: [],
+  totalRows: 0,
+  matched: 0,
+  unmatched: 0,
+  skippedOld: 0,
+  skippedCustoms: 0,
+  results: [],
+  unmatchedNames: [],
+  unmatchedRows: [],
+  etaChanges: [],
 };
+
+function cellEtaText(value: ExcelJS.CellValue): string | null {
+  const dt = cellToDate(value);
+  if (dt) {
+    const day = String(dt.getDate()).padStart(2, '0');
+    const month = String(dt.getMonth() + 1).padStart(2, '0');
+    const year = String(dt.getFullYear());
+    return `${day}.${month}.${year}`;
+  }
+  const txt = cellText(value).trim();
+  return txt || null;
+}
 
 /**
  * Parse an uploaded Excel buffer, match vessels against Supabase,
@@ -222,6 +266,12 @@ export async function processExcel(
   const terminalColNum = columns.terminalCol
     ? nameToCol.get(columns.terminalCol)
     : undefined;
+  const customsColNum = columns.customsCol
+    ? nameToCol.get(columns.customsCol)
+    : undefined;
+  const shipmentColNum = columns.shipmentCol
+    ? nameToCol.get(columns.shipmentCol)
+    : undefined;
 
   // --- Determine data range ---------------------------------------------
   const lastRowNum = sheet.lastRow?.number ?? 1;
@@ -248,18 +298,40 @@ export async function processExcel(
   // --- Iterate rows, match, and update in-place -------------------------
   const results: MatchResult[] = [];
   const unmatchedNames: string[] = [];
+  const unmatchedRows: UpdateResult['unmatchedRows'] = [];
+  const etaChanges: UpdateResult['etaChanges'] = [];
   let matched = 0;
   let skippedOld = 0;
+  let skippedCustoms = 0;
 
   for (let r = firstDataRow; r <= lastRowNum; r++) {
     const row = sheet.getRow(r);
+    const shipmentRaw = shipmentColNum
+      ? cellText(row.getCell(shipmentColNum).value).trim()
+      : '';
+    const shipmentRef = shipmentRaw || null;
 
     // Read vessel name
     const vesselRaw = cellText(row.getCell(vesselColNum).value).trim();
 
+    // Skip rows where customs/verzollt cell is filled.
+    if (customsColNum) {
+      const customsText = cellText(row.getCell(customsColNum).value).trim();
+      if (customsText) {
+        skippedCustoms++;
+        results.push({ row: r, vesselName: vesselRaw, matched: false });
+        continue;
+      }
+    }
+
     if (!vesselRaw) {
       results.push({ row: r, vesselName: '', matched: false });
       unmatchedNames.push('(empty)');
+      unmatchedRows.push({
+        shipmentRef,
+        vesselName: '(empty)',
+        eta: cellEtaText(row.getCell(etaColNums[0]).value),
+      });
       continue;
     }
 
@@ -278,6 +350,7 @@ export async function processExcel(
         }
       }
     }
+    const oldEta = cellEtaText(row.getCell(etaColNums[0]).value);
 
     const normalized = normalizeVesselName(vesselRaw);
 
@@ -326,6 +399,14 @@ export async function processExcel(
       }
 
       matched++;
+      if (formattedEta && oldEta && oldEta !== formattedEta) {
+        etaChanges.push({
+          shipmentRef,
+          vesselName: vesselRaw,
+          oldEta,
+          newEta: formattedEta,
+        });
+      }
       results.push({
         row: r,
         vesselName: vesselRaw,
@@ -347,6 +428,11 @@ export async function processExcel(
         matched: false,
       });
       unmatchedNames.push(vesselRaw);
+      unmatchedRows.push({
+        shipmentRef,
+        vesselName: vesselRaw,
+        eta: oldEta,
+      });
     }
   }
 
@@ -359,10 +445,13 @@ export async function processExcel(
     result: {
       totalRows,
       matched,
-      unmatched: totalRows - matched - skippedOld,
+      unmatched: totalRows - matched - skippedOld - skippedCustoms,
       skippedOld,
+      skippedCustoms,
       results,
       unmatchedNames: unmatchedNames.slice(0, 20),
+      unmatchedRows: unmatchedRows.slice(0, 20),
+      etaChanges: etaChanges.slice(0, 50),
     },
   };
 }

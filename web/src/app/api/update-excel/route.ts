@@ -122,6 +122,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const vesselCol = formData.get('vesselCol') as string | null;
     const etaCols = formData.getAll('etaCols').map(String).filter(Boolean);
     const terminalCol = (formData.get('terminalCol') as string | null) || undefined;
+    const customsCol = (formData.get('customsCol') as string | null) || undefined;
 
     if (!vesselCol || etaCols.length === 0) {
       return NextResponse.json(
@@ -138,6 +139,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       vesselCol,
       etaCols,
       terminalCol: terminalCol || undefined,
+      customsCol: customsCol || undefined,
     };
 
     // Process Excel
@@ -221,7 +223,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         matched: result.matched,
         unmatched: result.unmatched,
         skippedOld: result.skippedOld,
+        skippedCustoms: result.skippedCustoms,
         unmatchedNames: result.unmatchedNames,
+        unmatchedRows: result.unmatchedRows,
+        etaChanges: result.etaChanges,
       },
       file_ttl_minutes: TMP_TTL_MIN,
     });

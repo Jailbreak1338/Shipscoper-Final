@@ -7,6 +7,7 @@ interface DetectedColumns {
   vesselCol: string | null;
   etaCol: string | null;
   etaCols: string[];
+  customsCol: string | null;
   allColumns: string[];
 }
 
@@ -15,7 +16,19 @@ interface UpdateSummary {
   matched: number;
   unmatched: number;
   skippedOld: number;
+  skippedCustoms: number;
   unmatchedNames: string[];
+  unmatchedRows: Array<{
+    shipmentRef: string | null;
+    vesselName: string;
+    eta: string | null;
+  }>;
+  etaChanges: Array<{
+    shipmentRef: string | null;
+    vesselName: string;
+    oldEta: string | null;
+    newEta: string | null;
+  }>;
 }
 
 type Step = 'upload' | 'columns' | 'processing' | 'result';
@@ -27,6 +40,7 @@ export default function EtaUpdaterPage() {
   const [shipmentCol, setShipmentCol] = useState('');
   const [vesselCol, setVesselCol] = useState('');
   const [etaCol, setEtaCol] = useState('');
+  const [customsCol, setCustomsCol] = useState('');
   const [summary, setSummary] = useState<UpdateSummary | null>(null);
   const [jobId, setJobId] = useState('');
   const [error, setError] = useState('');
@@ -62,6 +76,7 @@ export default function EtaUpdaterPage() {
       setShipmentCol(det.shipmentCol || '');
       setVesselCol(det.vesselCol || '');
       setEtaCol(det.etaCol || det.etaCols[0] || '');
+      setCustomsCol(det.customsCol || '');
       setStep('columns');
     } catch {
       setError('Failed to upload file. Please try again.');
@@ -100,6 +115,9 @@ export default function EtaUpdaterPage() {
       }
       formData.append('vesselCol', vesselCol);
       formData.append('etaCols', etaCol);
+      if (customsCol) {
+        formData.append('customsCol', customsCol);
+      }
 
       const res = await fetch('/api/update-excel', {
         method: 'POST',
@@ -132,6 +150,7 @@ export default function EtaUpdaterPage() {
     setShipmentCol('');
     setVesselCol('');
     setEtaCol('');
+    setCustomsCol('');
     setSummary(null);
     setJobId('');
     setError('');
@@ -284,6 +303,26 @@ export default function EtaUpdaterPage() {
               </select>
             </div>
 
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Verzollt Spalte (optional)</label>
+              <select
+                style={styles.select}
+                value={customsCol}
+                onChange={(e) => setCustomsCol(e.target.value)}
+              >
+                <option value="">-- Keine --</option>
+                {detected.allColumns.map((col) => (
+                  <option key={col} value={col}>
+                    {col}
+                  </option>
+                ))}
+              </select>
+              <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#777' }}>
+                Wenn die Zelle in dieser Spalte gefuellt ist, wird die Zeile
+                als uebersprungen markiert.
+              </p>
+            </div>
+
             <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
               <button style={styles.btnSecondary} onClick={reset}>
                 Zurueck
@@ -374,20 +413,51 @@ export default function EtaUpdaterPage() {
                   </div>
                 </div>
               )}
+              {summary.skippedCustoms > 0 && (
+                <div style={{ ...styles.statCard, borderColor: '#64748b' }}>
+                  <div
+                    style={{
+                      fontSize: '28px',
+                      fontWeight: 700,
+                      color: '#64748b',
+                    }}
+                  >
+                    {summary.skippedCustoms}
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#666' }}>
+                    Uebersprungen (verzollt)
+                  </div>
+                </div>
+              )}
             </div>
 
-            {summary.unmatchedNames.length > 0 && (
+            {summary.unmatchedRows.length > 0 && (
               <div style={styles.unmatchedBox}>
                 <strong style={{ display: 'block', marginBottom: '8px' }}>
-                  Nicht gefundene Schiffe (max. 20):
+                  Nicht gefundene Eintraege (max. 20):
                 </strong>
                 <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                  {summary.unmatchedNames.map((name, i) => (
+                  {summary.unmatchedRows.map((row, i) => (
                     <li
                       key={i}
                       style={{ fontSize: '14px', marginBottom: '4px' }}
                     >
-                      {name}
+                      S-Nr: {row.shipmentRef || '-'} | Schiff: {row.vesselName || '(empty)'} | ETA: {row.eta || '-'}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {summary.etaChanges.length > 0 && (
+              <div style={{ ...styles.unmatchedBox, marginTop: '12px' }}>
+                <strong style={{ display: 'block', marginBottom: '8px' }}>
+                  ETA-Aenderungen (max. 50):
+                </strong>
+                <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                  {summary.etaChanges.map((chg, i) => (
+                    <li key={i} style={{ fontSize: '14px', marginBottom: '4px' }}>
+                      S-Nr: {chg.shipmentRef || '-'} | Schiff: {chg.vesselName} | {chg.oldEta || '-'} -&gt; {chg.newEta || '-'}
                     </li>
                   ))}
                 </ul>
