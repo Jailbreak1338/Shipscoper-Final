@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
+import { revalidatePath } from 'next/cache';
 
 async function isAdmin(userId: string): Promise<boolean> {
   // Use service-role client to bypass RLS for the role check
@@ -128,6 +129,8 @@ export async function POST() {
         completed_at: new Date().toISOString(),
       })
       .eq('id', runLog.id);
+    revalidatePath('/dashboard');
+    revalidatePath('/admin');
 
     if (success) {
       return NextResponse.json({
@@ -159,6 +162,8 @@ export async function POST() {
         completed_at: new Date().toISOString(),
       })
       .eq('id', runLog.id);
+    revalidatePath('/dashboard');
+    revalidatePath('/admin');
 
     return NextResponse.json(
       { success: false, error: message, run_id: runLog.id },

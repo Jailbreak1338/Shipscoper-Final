@@ -3,9 +3,10 @@
 import { useState, useRef, type ChangeEvent, type CSSProperties } from 'react';
 
 interface DetectedColumns {
+  shipmentCol: string | null;
   vesselCol: string | null;
+  etaCol: string | null;
   etaCols: string[];
-  terminalCol: string | null;
   allColumns: string[];
 }
 
@@ -23,9 +24,9 @@ export default function EtaUpdaterPage() {
   const [step, setStep] = useState<Step>('upload');
   const [file, setFile] = useState<File | null>(null);
   const [detected, setDetected] = useState<DetectedColumns | null>(null);
+  const [shipmentCol, setShipmentCol] = useState('');
   const [vesselCol, setVesselCol] = useState('');
-  const [etaCols, setEtaCols] = useState<string[]>([]);
-  const [terminalCol, setTerminalCol] = useState('');
+  const [etaCol, setEtaCol] = useState('');
   const [summary, setSummary] = useState<UpdateSummary | null>(null);
   const [jobId, setJobId] = useState('');
   const [error, setError] = useState('');
@@ -58,9 +59,9 @@ export default function EtaUpdaterPage() {
 
       const det: DetectedColumns = data.detected;
       setDetected(det);
+      setShipmentCol(det.shipmentCol || '');
       setVesselCol(det.vesselCol || '');
-      setEtaCols(det.etaCols.length > 0 ? det.etaCols : []);
-      setTerminalCol(det.terminalCol || '');
+      setEtaCol(det.etaCol || det.etaCols[0] || '');
       setStep('columns');
     } catch {
       setError('Failed to upload file. Please try again.');
@@ -81,15 +82,9 @@ export default function EtaUpdaterPage() {
     if (f) handleFileSelect(f);
   }
 
-  function toggleEtaCol(col: string) {
-    setEtaCols((prev) =>
-      prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]
-    );
-  }
-
   async function handleUpdate() {
-    if (!file || !vesselCol || etaCols.length === 0) {
-      setError('Bitte Vessel-Spalte und mindestens eine ETA-Spalte auswählen.');
+    if (!file || !vesselCol || !etaCol) {
+      setError('Bitte Vessel-Spalte und ETA-Spalte auswählen.');
       return;
     }
 
@@ -100,13 +95,11 @@ export default function EtaUpdaterPage() {
     try {
       const formData = new FormData();
       formData.append('file', file);
+      if (shipmentCol) {
+        formData.append('shipmentCol', shipmentCol);
+      }
       formData.append('vesselCol', vesselCol);
-      for (const col of etaCols) {
-        formData.append('etaCols', col);
-      }
-      if (terminalCol) {
-        formData.append('terminalCol', terminalCol);
-      }
+      formData.append('etaCols', etaCol);
 
       const res = await fetch('/api/update-excel', {
         method: 'POST',
@@ -136,9 +129,9 @@ export default function EtaUpdaterPage() {
     setStep('upload');
     setFile(null);
     setDetected(null);
+    setShipmentCol('');
     setVesselCol('');
-    setEtaCols([]);
-    setTerminalCol('');
+    setEtaCol('');
     setSummary(null);
     setJobId('');
     setError('');
@@ -154,7 +147,6 @@ export default function EtaUpdaterPage() {
           Excel hochladen, ETAs automatisch aus der Datenbank aktualisieren.
         </p>
 
-        {/* Progress Steps */}
         <div style={styles.steps}>
           {(['upload', 'columns', 'result'] as const).map((s, i) => {
             const labels = ['Upload', 'Spalten', 'Ergebnis'];
@@ -195,7 +187,6 @@ export default function EtaUpdaterPage() {
 
         {error && <div style={styles.error}>{error}</div>}
 
-        {/* Step 1: Upload */}
         {step === 'upload' && (
           <div
             style={{
@@ -227,12 +218,11 @@ export default function EtaUpdaterPage() {
                 : 'Excel-Datei hier ablegen'}
             </p>
             <p style={{ margin: 0, fontSize: '14px', color: '#888' }}>
-              oder klicken zum Auswählen (.xlsx / .xls, max 10 MB)
+              oder klicken zum Auswaehlen (.xlsx / .xls, max 10 MB)
             </p>
           </div>
         )}
 
-        {/* Step 2: Column selection */}
         {step === 'columns' && detected && (
           <div style={styles.section}>
             <p style={{ margin: '0 0 4px', fontSize: '14px', color: '#666' }}>
@@ -243,90 +233,11 @@ export default function EtaUpdaterPage() {
             </p>
 
             <div style={styles.formGroup}>
-              <label style={styles.label}>
-                Vessel Name Spalte <span style={{ color: '#e00' }}>*</span>
-              </label>
+              <label style={styles.label}>Sendungsnummer Spalte</label>
               <select
                 style={styles.select}
-                value={vesselCol}
-                onChange={(e) => setVesselCol(e.target.value)}
-              >
-                <option value="">-- Spalte wählen --</option>
-                {detected.allColumns.map((col) => (
-                  <option key={col} value={col}>
-                    {col}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>
-                ETA Spalten <span style={{ color: '#e00' }}>*</span>
-                <span style={{ fontWeight: 400, fontSize: '13px', color: '#888', marginLeft: '8px' }}>
-                  (alle gewählten Spalten werden aktualisiert)
-                </span>
-              </label>
-              <div
-                style={{
-                  border: '1px solid #d1d5db',
-                  borderRadius: '8px',
-                  padding: '8px 12px',
-                  backgroundColor: '#fff',
-                  maxHeight: '160px',
-                  overflowY: 'auto' as const,
-                }}
-              >
-                {detected.allColumns.map((col) => (
-                  <label
-                    key={col}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '6px 4px',
-                      cursor: 'pointer',
-                      borderRadius: '4px',
-                      backgroundColor: etaCols.includes(col) ? '#f0f7ff' : 'transparent',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={etaCols.includes(col)}
-                      onChange={() => toggleEtaCol(col)}
-                      style={{ accentColor: '#0066cc' }}
-                    />
-                    <span style={{ fontSize: '14px' }}>{col}</span>
-                    {detected.etaCols.includes(col) && (
-                      <span
-                        style={{
-                          fontSize: '11px',
-                          backgroundColor: '#dbeafe',
-                          color: '#1d4ed8',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          marginLeft: 'auto',
-                        }}
-                      >
-                        auto-detected
-                      </span>
-                    )}
-                  </label>
-                ))}
-              </div>
-              {etaCols.length > 0 && (
-                <div style={{ fontSize: '13px', color: '#666', marginTop: '6px' }}>
-                  {etaCols.length} Spalte{etaCols.length !== 1 ? 'n' : ''} ausgewählt: {etaCols.join(', ')}
-                </div>
-              )}
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>Terminal Spalte (optional)</label>
-              <select
-                style={styles.select}
-                value={terminalCol}
-                onChange={(e) => setTerminalCol(e.target.value)}
+                value={shipmentCol}
+                onChange={(e) => setShipmentCol(e.target.value)}
               >
                 <option value="">-- Keine --</option>
                 {detected.allColumns.map((col) => (
@@ -337,16 +248,52 @@ export default function EtaUpdaterPage() {
               </select>
             </div>
 
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                Vessel Name Spalte <span style={{ color: '#e00' }}>*</span>
+              </label>
+              <select
+                style={styles.select}
+                value={vesselCol}
+                onChange={(e) => setVesselCol(e.target.value)}
+              >
+                <option value="">-- Spalte waehlen --</option>
+                {detected.allColumns.map((col) => (
+                  <option key={col} value={col}>
+                    {col}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                ETA Spalte <span style={{ color: '#e00' }}>*</span>
+              </label>
+              <select
+                style={styles.select}
+                value={etaCol}
+                onChange={(e) => setEtaCol(e.target.value)}
+              >
+                <option value="">-- Spalte waehlen --</option>
+                {detected.allColumns.map((col) => (
+                  <option key={col} value={col}>
+                    {col}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
               <button style={styles.btnSecondary} onClick={reset}>
-                Zurück
+                Zurueck
               </button>
               <button
                 style={{
                   ...styles.btnPrimary,
-                  opacity: !vesselCol || etaCols.length === 0 ? 0.5 : 1,
+                  opacity: !vesselCol || !etaCol ? 0.5 : 1,
                 }}
-                disabled={!vesselCol || etaCols.length === 0 || loading}
+                disabled={!vesselCol || !etaCol || loading}
                 onClick={handleUpdate}
               >
                 ETAs updaten
@@ -355,7 +302,6 @@ export default function EtaUpdaterPage() {
           </div>
         )}
 
-        {/* Step 3: Processing */}
         {step === 'processing' && (
           <div style={{ textAlign: 'center' as const, padding: '48px 0' }}>
             <div style={styles.spinner} />
@@ -365,7 +311,6 @@ export default function EtaUpdaterPage() {
           </div>
         )}
 
-        {/* Step 4: Result */}
         {step === 'result' && summary && (
           <div style={styles.section}>
             <h2 style={{ margin: '0 0 16px', fontSize: '18px' }}>Ergebnis</h2>
@@ -425,7 +370,7 @@ export default function EtaUpdaterPage() {
                     {summary.skippedOld}
                   </div>
                   <div style={{ fontSize: '13px', color: '#666' }}>
-                    Übersprungen (alt)
+                    Uebersprungen (alt)
                   </div>
                 </div>
               )}

@@ -81,6 +81,27 @@ def health():
     return jsonify({"ok": True, "timestamp": datetime.utcnow().isoformat()})
 
 
+@app.route("/webhook/test-email", methods=["POST"])
+def trigger_test_email():
+    """Send a test email. Requires X-Webhook-Secret header."""
+    secret = request.headers.get("X-Webhook-Secret", "")
+    if not WEBHOOK_SECRET or secret != WEBHOOK_SECRET:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    to_email = str(payload.get("to_email", "")).strip()
+    if not to_email:
+        return jsonify({"error": "Missing to_email"}), 400
+
+    try:
+        from scraper.email_sender import send_test_notification
+
+        send_test_notification(to_email)
+        return jsonify({"ok": True, "to_email": to_email}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8080"))
     app.run(host="0.0.0.0", port=port)

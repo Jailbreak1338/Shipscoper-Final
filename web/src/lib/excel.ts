@@ -5,18 +5,30 @@ import { fetchLatestSchedule, LatestScheduleRow } from './supabaseServer';
 import { mapTerminalName } from './terminalMapping';
 
 // Column name candidates (case-insensitive matching)
-const VESSEL_CANDIDATES = ['vessel', 'vessel name', 'schiff', 'ship', 'vesselname'];
-const ETA_CANDIDATES = ['eta', 'ankunft', 'arrival', 'eta (soll)'];
+const SHIPMENT_CANDIDATES = [
+  'sendungsnummer',
+  'sendung',
+  'shipment',
+  'shipmentnumber',
+  'shipmentno',
+  'positionsnummer',
+  'referenz',
+];
+const VESSEL_CANDIDATES = ['vessel', 'vesselname', 'schiff', 'ship'];
+const ETA_CANDIDATES = ['eta', 'ankunft', 'arrival', 'etasoll', 'ankunftsoll'];
 const TERMINAL_CANDIDATES = ['terminal', 'ct', 'terminal name'];
 
 export interface ColumnMapping {
+  shipmentCol?: string;
   vesselCol: string;
   etaCols: string[];
   terminalCol?: string;
 }
 
 export interface DetectedColumns {
+  shipmentCol: string | null;
   vesselCol: string | null;
+  etaCol: string | null;
   etaCols: string[];
   terminalCol: string | null;
   allColumns: string[];
@@ -47,20 +59,38 @@ export interface UpdateResult {
  * Uses SheetJS (lightweight, read-only — no formatting concerns).
  */
 export function detectColumns(headers: string[]): DetectedColumns {
-  const lower = headers.map((h) => h.toLowerCase().trim());
+  const normalizeHeader = (h: string): string =>
+    h
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, '')
+      .replace(/[()\-_/]/g, '');
+  const normalized = headers.map(normalizeHeader);
+  const findByCandidates = (candidates: string[]): string | null => {
+    for (let i = 0; i < normalized.length; i++) {
+      const hdr = normalized[i];
+      if (candidates.some((c) => hdr.includes(c))) {
+        return headers[i];
+      }
+    }
+    return null;
+  };
 
-  const vesselCol = headers[lower.findIndex((h) => VESSEL_CANDIDATES.includes(h))] ?? null;
-  const terminalCol = headers[lower.findIndex((h) => TERMINAL_CANDIDATES.includes(h))] ?? null;
+  const shipmentCol = findByCandidates(SHIPMENT_CANDIDATES);
+  const vesselCol = findByCandidates(VESSEL_CANDIDATES);
+  const terminalCol = findByCandidates(TERMINAL_CANDIDATES);
 
   // Find ALL columns that match ETA patterns
   const etaCols: string[] = [];
-  for (let i = 0; i < lower.length; i++) {
-    if (ETA_CANDIDATES.includes(lower[i])) {
+  for (let i = 0; i < normalized.length; i++) {
+    const hdr = normalized[i];
+    if (ETA_CANDIDATES.some((c) => hdr.includes(c))) {
       etaCols.push(headers[i]);
     }
   }
+  const etaCol = etaCols[0] ?? null;
 
-  return { vesselCol, etaCols, terminalCol, allColumns: headers };
+  return { shipmentCol, vesselCol, etaCol, etaCols, terminalCol, allColumns: headers };
 }
 
 /**

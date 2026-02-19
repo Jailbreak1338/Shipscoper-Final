@@ -26,7 +26,7 @@ export default function AdminDashboardPage() {
 
   const fetchLastRun = async () => {
     try {
-      const res = await fetch('/api/admin/trigger-scraper');
+      const res = await fetch('/api/admin/trigger-scraper', { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setLastRun(data.last_run);

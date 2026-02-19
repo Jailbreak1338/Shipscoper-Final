@@ -96,3 +96,36 @@ def send_eta_notification(
         server.send_message(msg)
 
     logger.info(f"[email] ETA notification sent to {to_email} for {vessel_name}")
+
+
+def send_test_notification(to_email: str) -> None:
+    """Send a simple test email to verify SMTP delivery."""
+    address = env.get("EMAIL_ADDRESS", "")
+    password = env.get("EMAIL_PASSWORD", "")
+    smtp_server = env.get("SMTP_SERVER", "smtp.gmail.com")
+    smtp_port = int(env.get("SMTP_PORT", "587"))
+
+    if not address or not password:
+        raise RuntimeError("EMAIL_ADDRESS and EMAIL_PASSWORD must be set")
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "ETA Watchlist Test Email"
+    msg["From"] = address
+    msg["To"] = to_email
+    msg.attach(
+        MIMEText(
+            (
+                "Dies ist eine Test-E-Mail aus ETA Sea Tracker.\n\n"
+                "Wenn du diese Nachricht siehst, funktioniert der E-Mail-Versand."
+            ),
+            "plain",
+            "utf-8",
+        )
+    )
+
+    with smtplib.SMTP(smtp_server, smtp_port) as server:
+        server.starttls()
+        server.login(address, password)
+        server.send_message(msg)
+
+    logger.info(f"[email] Test notification sent to {to_email}")

@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { detectColumns, processExcel, ColumnMapping } from '@/lib/excel';
 import { getClientIp, extractShipmentNumbers } from '@/lib/security';
 import { cleanupExpiredTmpFiles, getTmpFilePath, TMP_TTL_MIN } from '@/lib/tmpFiles';
+import { revalidatePath } from 'next/cache';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import * as XLSX from 'xlsx';
@@ -117,6 +118,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Get column mappings from form data
+    const shipmentCol = (formData.get('shipmentCol') as string | null) || undefined;
     const vesselCol = formData.get('vesselCol') as string | null;
     const etaCols = formData.getAll('etaCols').map(String).filter(Boolean);
     const terminalCol = (formData.get('terminalCol') as string | null) || undefined;
@@ -132,6 +134,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const columns: ColumnMapping = {
+      shipmentCol: shipmentCol || undefined,
       vesselCol,
       etaCols,
       terminalCol: terminalCol || undefined,
@@ -140,20 +143,43 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Process Excel
     const { updatedBuffer, result } = await processExcel(fileBuffer, columns);
 
-    // Extract S00... shipment numbers from original Excel
+    // Extract S00... shipment numbers from original Excel.
+    // If shipmentCol is selected, prioritize that column for cleaner logs.
     const shipmentNumbers: string[] = [];
     const scanWorkbook = XLSX.read(fileBuffer, { type: 'buffer', cellDates: false });
     const scanSheet = scanWorkbook.Sheets[scanWorkbook.SheetNames[0]];
     const scanRef = scanSheet['!ref'];
     if (scanRef) {
       const range = XLSX.utils.decode_range(scanRef);
-      for (let r = range.s.r; r <= range.e.r; r++) {
+
+      // Build header map from row 0
+      const headerToCol = new Map<string, number>();
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const cellAddr = XLSX.utils.encode_cell({ r: range.s.r, c });
+        const cell = scanSheet[cellAddr];
+        const header = cell?.v != null ? String(cell.v).trim() : '';
+        if (header) {
+          headerToCol.set(header, c);
+        }
+      }
+
+      const scanOnlyCol = shipmentCol ? headerToCol.get(shipmentCol) : undefined;
+
+      for (let r = range.s.r + 1; r <= range.e.r; r++) {
+        if (scanOnlyCol !== undefined) {
+          const cellAddr = XLSX.utils.encode_cell({ r, c: scanOnlyCol });
+          const cell = scanSheet[cellAddr];
+          if (cell?.v != null) {
+            shipmentNumbers.push(...extractShipmentNumbers(String(cell.v)));
+          }
+          continue;
+        }
+
         for (let c = range.s.c; c <= range.e.c; c++) {
           const cellAddr = XLSX.utils.encode_cell({ r, c });
           const cell = scanSheet[cellAddr];
-          if (cell && cell.v != null) {
-            const nums = extractShipmentNumbers(String(cell.v));
-            shipmentNumbers.push(...nums);
+          if (cell?.v != null) {
+            shipmentNumbers.push(...extractShipmentNumbers(String(cell.v)));
           }
         }
       }
@@ -186,6 +212,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     } catch (logErr) {
       console.error('logUpload failed:', logErr);
     }
+    revalidatePath('/dashboard');
 
     return NextResponse.json({
       jobId,
