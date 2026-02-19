@@ -1,4 +1,5 @@
 import asyncio
+import time
 from pathlib import Path
 
 from scraper.base_scraper import BaseScraper
@@ -37,9 +38,37 @@ class HHLAScraper(BaseScraper):
 
     def fetch(self) -> str:
         logger.info("[hhla] Launching Playwright (headless)...")
-        return asyncio.get_event_loop().run_until_complete(self._fetch_async())
 
-    async def _fetch_async(self) -> str:
+        last_error = None
+        base_timeout = self.timeout
+        attempts = max(1, int(self.retry_attempts))
+
+        for attempt in range(1, attempts + 1):
+            # Increase timeout per attempt to handle transient slow page loads.
+            timeout_this_attempt = base_timeout + ((attempt - 1) * 10)
+            try:
+                logger.info(
+                    f"[hhla] Fetch attempt {attempt}/{attempts} "
+                    f"(timeout={timeout_this_attempt}s)"
+                )
+                return asyncio.get_event_loop().run_until_complete(
+                    self._fetch_async(timeout_this_attempt)
+                )
+            except Exception as e:
+                last_error = e
+                if attempt >= attempts:
+                    break
+
+                backoff = max(1, self.retry_delay) * attempt
+                logger.warning(
+                    f"[hhla] Attempt {attempt} failed: {e}. "
+                    f"Retrying in {backoff}s..."
+                )
+                time.sleep(backoff)
+
+        raise RuntimeError(f"HHLA fetch failed after {attempts} attempts: {last_error}")
+
+    async def _fetch_async(self, timeout_seconds: int) -> str:
         from playwright.async_api import async_playwright
 
         async with async_playwright() as p:
@@ -51,10 +80,17 @@ class HHLAScraper(BaseScraper):
 
             try:
                 logger.info(f"[hhla] Navigating to coast.hhla.de...")
-                await page.goto(HHLA_URL, wait_until="networkidle", timeout=self.timeout * 1000)
+                await page.goto(
+                    HHLA_URL,
+                    wait_until="networkidle",
+                    timeout=timeout_seconds * 1000,
+                )
 
                 logger.info("[hhla] Waiting for table to render...")
-                await page.wait_for_selector("table", timeout=15000)
+                await page.wait_for_selector(
+                    "table",
+                    timeout=max(15000, timeout_seconds * 1000),
+                )
 
                 self.html = await page.content()
                 logger.info(f"[hhla] OK - {len(self.html)} bytes received")
