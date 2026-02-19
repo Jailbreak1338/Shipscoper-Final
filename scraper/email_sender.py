@@ -36,6 +36,7 @@ def send_eta_notification(
     password = env.get("EMAIL_PASSWORD", "")
     smtp_server = env.get("SMTP_SERVER", "smtp.gmail.com")
     smtp_port = int(env.get("SMTP_PORT", "587"))
+    smtp_timeout = int(env.get("SMTP_TIMEOUT", "10"))
 
     if not address or not password:
         raise RuntimeError("EMAIL_ADDRESS and EMAIL_PASSWORD must be set")
@@ -90,7 +91,7 @@ def send_eta_notification(
     msg["To"] = to_email
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    with smtplib.SMTP(smtp_server, smtp_port) as server:
+    with smtplib.SMTP(smtp_server, smtp_port, timeout=smtp_timeout) as server:
         server.starttls()
         server.login(address, password)
         failed = server.send_message(msg)
@@ -106,6 +107,7 @@ def send_test_notification(to_email: str) -> None:
     password = env.get("EMAIL_PASSWORD", "")
     smtp_server = env.get("SMTP_SERVER", "smtp.gmail.com")
     smtp_port = int(env.get("SMTP_PORT", "587"))
+    smtp_timeout = int(env.get("SMTP_TIMEOUT", "10"))
 
     if not address or not password:
         raise RuntimeError("EMAIL_ADDRESS and EMAIL_PASSWORD must be set")
@@ -125,7 +127,7 @@ def send_test_notification(to_email: str) -> None:
         )
     )
 
-    with smtplib.SMTP(smtp_server, smtp_port) as server:
+    with smtplib.SMTP(smtp_server, smtp_port, timeout=smtp_timeout) as server:
         server.starttls()
         server.login(address, password)
         failed = server.send_message(msg)

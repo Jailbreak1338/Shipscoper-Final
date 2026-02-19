@@ -39,6 +39,7 @@ class EmailAutomation:
         self.imap_port = int(env.get("IMAP_PORT", "993"))
         self.smtp_server = env.get("SMTP_SERVER", "smtp.gmail.com")
         self.smtp_port = int(env.get("SMTP_PORT", "587"))
+        self.smtp_timeout = int(env.get("SMTP_TIMEOUT", "10"))
 
         if not self.address or not self.password:
             raise ValueError(
@@ -154,7 +155,7 @@ class EmailAutomation:
         attachment["Content-Disposition"] = f'attachment; filename="{excel_path.name}"'
         msg.attach(attachment)
 
-        with smtplib.SMTP(self.smtp_server, self.smtp_port) as smtp:
+        with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=self.smtp_timeout) as smtp:
             smtp.starttls()
             smtp.login(self.address, self.password)
             smtp.send_message(msg)
