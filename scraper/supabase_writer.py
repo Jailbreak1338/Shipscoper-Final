@@ -1,10 +1,9 @@
 """Push scraped vessel data to Supabase."""
-
-import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from utils import env, logger
+from utils.normalization import normalize_vessel_name
 
 _supabase_client = None
 
@@ -31,15 +30,6 @@ def _get_client():
 
     _supabase_client = create_client(url, key)
     return _supabase_client
-
-
-def normalize_vessel_name(name: str) -> str:
-    """Normalize vessel name: trim, upper-case, collapse whitespace.
-
-    Matches the web app's normalizeVesselName() exactly.
-    Does NOT strip dots or dashes (unlike excel_processor).
-    """
-    return re.sub(r"\s+", " ", name.strip().upper())
 
 
 def _parse_german_datetime(dt_str: str) -> str | None:

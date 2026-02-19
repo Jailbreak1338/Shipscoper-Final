@@ -8,17 +8,13 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from utils import config, logger
+from utils.normalization import normalize_vessel_name
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 FUZZY_THRESHOLD = config["processor"].get("fuzzy_match_threshold", 85)
 
 # Regex for dates like "13.02.2026" or "13.02.2026 05:30"
 DATE_RE = re.compile(r"(\d{2})\.(\d{2})\.(\d{4})")
-
-
-def normalize_vessel_name(name: str) -> str:
-    """Normalize vessel name for comparison."""
-    return name.strip().upper().replace(".", "").replace("-", " ")
 
 
 def parse_eta_date(eta_str: str) -> str | None:

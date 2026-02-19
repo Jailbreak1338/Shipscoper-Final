@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from rich.console import Console
 from rich.table import Table
 
-from processor.excel_processor import process, cross_match, normalize_vessel_name
+from processor.excel_processor import process, cross_match
 from utils import logger
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "scraped"
