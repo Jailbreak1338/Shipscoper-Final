@@ -53,7 +53,10 @@ def _parse_german_datetime(dt_str: str) -> str | None:
         try:
             dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
-            logger.warning(f"[supabase] Could not parse datetime: {dt_str!r}")
+            logger.warning(
+                f"[supabase] Could not parse datetime: {dt_str!r} "
+                "(expected DD.MM.YYYY HH:MM or ISO-like YYYY-MM-DD HH:MM[:SS])"
+            )
             return None
 
     if dt.tzinfo is None:
