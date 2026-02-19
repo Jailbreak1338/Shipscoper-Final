@@ -4,7 +4,7 @@ Automatisiertes Scraping von Schiffsankunftszeiten (ETAs) der Hamburger Containe
 
 Features
 
-- *Eurogate Scraper* — Session-basiert, parst komplexe Rowspan-Tabellen
+ *Eurogate Scraper* — Session-basiert, parst komplexe Rowspan-Tabellen
 - **HHLA Scraper** — Playwright-basiert (JavaScript SPA), 14 Spalten
 - **Cross-Matching** — Fuzzy Name Matching + ETA-Datum zwischen Terminals
 - **Excel-Export** — Formatierte Tabelle mit Auto-Spaltenbreiten, Freeze Panes
