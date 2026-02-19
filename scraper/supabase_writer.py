@@ -17,11 +17,14 @@ def _get_client():
     if _supabase_client is not None:
         return _supabase_client
 
-    url = env.get("SUPABASE_URL", "")
+    # Primary server-side variable is SUPABASE_URL.
+    # For compatibility with shared env setups, accept NEXT_PUBLIC_SUPABASE_URL as fallback.
+    url = env.get("SUPABASE_URL", "") or env.get("NEXT_PUBLIC_SUPABASE_URL", "")
     key = env.get("SUPABASE_SERVICE_ROLE_KEY", "")
     if not url or not key:
         raise RuntimeError(
-            "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env"
+            "SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and "
+            "SUPABASE_SERVICE_ROLE_KEY must be set in .env"
         )
 
     from supabase import create_client

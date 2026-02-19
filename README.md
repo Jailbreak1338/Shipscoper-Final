@@ -162,6 +162,11 @@ Siehe **[docs/WATCHLIST.md](docs/WATCHLIST.md)** — Vessels beobachten und bei 
 
 ### .env
 ```
+SUPABASE_URL=https://xxx.supabase.co
+# Optional fallback alias used by some deployments:
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+
 EMAIL_ADDRESS=bot@firma.de
 EMAIL_PASSWORD=app-specific-password
 IMAP_SERVER=imap.gmail.com
