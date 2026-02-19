@@ -51,9 +51,9 @@ class HHLAScraper(BaseScraper):
                     f"[hhla] Fetch attempt {attempt}/{attempts} "
                     f"(timeout={timeout_this_attempt}s)"
                 )
-                return asyncio.get_event_loop().run_until_complete(
-                    self._fetch_async(timeout_this_attempt)
-                )
+                # Use asyncio.run so this works reliably in worker threads
+                # (e.g. Flask background thread on Railway).
+                return asyncio.run(self._fetch_async(timeout_this_attempt))
             except Exception as e:
                 last_error = e
                 if attempt >= attempts:

@@ -58,7 +58,8 @@ export default function AdminDashboardPage() {
           type: 'success',
           text:
             data.message ||
-            `Scraper erfolgreich. ${data.vessels_scraped} Vessels gescraped.`,
+            `Scraper erfolgreich. ${data.vessels_scraped} Vessels gescraped ` +
+              `(${data.eurogate_scraped ?? 0} Eurogate + ${data.hhla_scraped ?? 0} HHLA).`,
         });
         fetchLastRun();
       } else {

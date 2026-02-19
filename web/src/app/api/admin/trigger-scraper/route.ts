@@ -118,6 +118,8 @@ export async function POST() {
 
     const success = finalStatus.status === 'completed';
     const vesselsScraped = finalStatus.summary?.total || 0;
+    const eurogateScraped = finalStatus.summary?.eurogate_count || 0;
+    const hhlaScraped = finalStatus.summary?.hhla_count || 0;
 
     // Update scraper run log
     await admin
@@ -136,8 +138,12 @@ export async function POST() {
       return NextResponse.json({
         success: true,
         vessels_scraped: vesselsScraped,
+        eurogate_scraped: eurogateScraped,
+        hhla_scraped: hhlaScraped,
         run_id: runLog.id,
-        message: `Scraper completed successfully. ${vesselsScraped} vessels scraped.`,
+        message:
+          `Scraper completed successfully. ${vesselsScraped} vessels scraped ` +
+          `(${eurogateScraped} Eurogate + ${hhlaScraped} HHLA).`,
       });
     } else {
       return NextResponse.json(
