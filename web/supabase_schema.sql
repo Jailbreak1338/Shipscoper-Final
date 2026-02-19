@@ -68,22 +68,9 @@ JOIN vessels v ON v.id = se.vessel_id
 WHERE se.rn = 1;
 
 -- ============================================
--- RLS (Row Level Security) – MVP Setup
--- For development: RLS disabled.
--- For production: enable RLS and create
--- appropriate policies.
+-- RLS note
 -- ============================================
-
--- Option A: RLS off (development/MVP)
-ALTER TABLE vessels DISABLE ROW LEVEL SECURITY;
-ALTER TABLE schedule_events DISABLE ROW LEVEL SECURITY;
-
--- Option B (production): Uncomment below to enable read-only access
--- ALTER TABLE vessels ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE schedule_events ENABLE ROW LEVEL SECURITY;
---
--- CREATE POLICY "Allow read access" ON vessels
---   FOR SELECT USING (true);
---
--- CREATE POLICY "Allow read access" ON schedule_events
---   FOR SELECT USING (true);
+-- This base schema intentionally does not toggle RLS.
+-- Apply auth/RLS policies via:
+--   1) supabase_auth_schema.sql
+--   2) supabase_watchlist_schema.sql

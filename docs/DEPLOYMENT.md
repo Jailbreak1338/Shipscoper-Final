@@ -23,7 +23,21 @@ Im Supabase SQL Editor ausführen:
 -- Erstellt: vessel_watches, eta_change_notifications + RLS Policies
 ```
 
-### 1.2 Environment Variables notieren
+### 1.2 Basis- und Auth-Schema (Pflicht)
+
+Im Supabase SQL Editor in dieser Reihenfolge ausführen:
+
+```sql
+-- Datei: web/supabase_schema.sql
+-- Datei: web/supabase_auth_schema.sql
+-- Datei: web/supabase_watchlist_schema.sql
+```
+
+Hinweis:
+- `supabase_schema.sql` toggelt RLS nicht.
+- RLS/Auth-Policies werden in `supabase_auth_schema.sql` und `supabase_watchlist_schema.sql` gesetzt.
+
+### 1.3 Environment Variables notieren
 
 Aus Supabase Dashboard > Settings > API:
 

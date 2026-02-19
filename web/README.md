@@ -27,7 +27,13 @@ Next.js 14 Web-App zum automatischen Abgleich von Vessel ETAs aus Excel-Dateien 
 
 ### Schema anlegen
 
-Gehe zum **SQL Editor** in Supabase und führe den gesamten Inhalt von `supabase_schema.sql` aus:
+Gehe zum **SQL Editor** in Supabase und führe die SQL-Dateien in dieser Reihenfolge aus:
+
+1. `supabase_schema.sql` (Basis-Tabellen/Views)
+2. `supabase_auth_schema.sql` (RLS/Auth/roles/upload logs)
+3. `supabase_watchlist_schema.sql` (Watchlist + notifications)
+
+`supabase_schema.sql` enthält absichtlich keine RLS-Toggles.
 
 ```sql
 -- Kurzfassung – vollständiges SQL in supabase_schema.sql
