@@ -29,7 +29,7 @@ Die aktuelle ETA wird automatisch aus der Datenbank geholt und gespeichert.
 
 ## ETA-Benachrichtigungen
 
-Wenn der Scraper läuft (3x täglich: 06:00, 12:00, 18:00 UTC) und eine
+Wenn der Scraper läuft (1x täglich: 06:00 UTC, hobby-safe) und eine
 ETA-Änderung erkannt wird:
 
 1. Ein Eintrag in `eta_change_notifications` wird erstellt

@@ -101,7 +101,7 @@ Use:
 
 ## 4. Schedule (Final)
 
-- Scraper schedule: `06:00`, `12:00`, `18:00` UTC (daily)
+- Scraper schedule: `06:00` UTC (daily, hobby-safe)
 - Source of truth: `web/vercel.json`
 - Trigger path: `/api/cron/trigger-scraper`
 

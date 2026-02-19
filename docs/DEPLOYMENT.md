@@ -140,12 +140,12 @@ Die `vercel.json` konfiguriert automatisch den Cron:
 {
   "crons": [{
     "path": "/api/cron/trigger-scraper",
-    "schedule": "0 6,12,18 * * *"
+    "schedule": "0 6 * * *"
   }]
 }
 ```
 
-- Läuft um 06:00, 12:00, 18:00 UTC
+- Läuft um 06:00 UTC (hobby-safe, 1x täglich)
 - Ruft Railway-Scraper per Webhook auf
 - Vercel setzt `Authorization: Bearer <CRON_SECRET>` automatisch
 

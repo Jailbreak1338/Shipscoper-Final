@@ -3,6 +3,9 @@
 Date: 2026-02-19
 Branch: `codex-fix-all`
 
+Update (hobby-safe):
+- Vercel cron was adjusted to once daily (`0 6 * * *`) to satisfy Hobby plan limits.
+
 ## 1. Fixes by topic
 
 ### B) RUNBOOK + source of truth

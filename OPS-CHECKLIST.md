@@ -6,7 +6,7 @@ Use this checklist for settings that cannot be fully enforced by repository code
 
 1. Open Vercel Dashboard -> Project -> `Settings` -> `Cron Jobs`.
 2. Verify the route exists: `/api/cron/trigger-scraper`.
-3. Verify schedule is exactly: `0 6,12,18 * * *` (UTC).
+3. Verify schedule is exactly: `0 6 * * *` (UTC, hobby-safe once per day).
 4. Open Vercel Dashboard -> Project -> `Settings` -> `Environment Variables`.
 5. Verify `CRON_SECRET`, `RAILWAY_SCRAPER_URL`, and `WEBHOOK_SECRET` are set.
 6. Redeploy the latest commit after any env or cron change.
