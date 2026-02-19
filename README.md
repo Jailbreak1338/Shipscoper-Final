@@ -12,7 +12,7 @@ Automatisiertes Scraping von Schiffsankunftszeiten (ETAs) der Hamburger Containe
 - **CLI-Interface** — Click-basiert mit mehreren Commands
 - **Logging** — Loguru mit Rotation und File-Output
 
-## Architektur
+# Architektur
 
 ```
 eta-automation/
