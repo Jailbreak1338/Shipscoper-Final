@@ -48,6 +48,32 @@ export default function EtaUpdaterPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
+  const groupedUnmatched = (() => {
+    if (!summary) return [];
+    const validRows = summary.unmatchedRows.filter((row) => {
+      const vessel = (row.vesselName || '').trim();
+      const snr = (row.shipmentRef || '').trim();
+      return vessel && vessel !== '(empty)' && (snr || row.eta);
+    });
+
+    const map = new Map<
+      string,
+      Array<{ shipmentRef: string | null; eta: string | null }>
+    >();
+
+    for (const row of validRows) {
+      const vessel = row.vesselName.trim();
+      const existing = map.get(vessel) ?? [];
+      existing.push({ shipmentRef: row.shipmentRef, eta: row.eta });
+      map.set(vessel, existing);
+    }
+
+    return Array.from(map.entries()).map(([vesselName, rows]) => ({
+      vesselName,
+      rows,
+    }));
+  })();
+
   async function handleFileSelect(selectedFile: File) {
     setError('');
     setFile(selectedFile);
@@ -431,21 +457,25 @@ export default function EtaUpdaterPage() {
               )}
             </div>
 
-            {summary.unmatchedRows.length > 0 && (
+            {groupedUnmatched.length > 0 && (
               <div style={styles.unmatchedBox}>
                 <strong style={{ display: 'block', marginBottom: '8px' }}>
                   Nicht gefundene Eintraege (max. 20):
                 </strong>
-                <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                  {summary.unmatchedRows.map((row, i) => (
-                    <li
-                      key={i}
-                      style={{ fontSize: '14px', marginBottom: '4px' }}
-                    >
-                      S-Nr: {row.shipmentRef || '-'} | Schiff: {row.vesselName || '(empty)'} | ETA: {row.eta || '-'}
-                    </li>
+                <div style={{ display: 'grid', gap: '8px' }}>
+                  {groupedUnmatched.map((group, i) => (
+                    <div key={`${group.vesselName}-${i}`} style={{ fontSize: '14px' }}>
+                      <div style={{ fontWeight: 600 }}>Schiff: {group.vesselName}</div>
+                      <ul style={{ margin: '4px 0 0', paddingLeft: '20px' }}>
+                        {group.rows.map((row, j) => (
+                          <li key={`${group.vesselName}-${j}`} style={{ marginBottom: '3px' }}>
+                            S-Nr: {row.shipmentRef || '-'} | ETA: {row.eta || '-'}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </div>
             )}
 
