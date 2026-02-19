@@ -16,6 +16,17 @@ _last_run = {"status": "idle", "started_at": None, "finished_at": None, "summary
 _lock = threading.Lock()
 
 
+def _run_test_email(to_email: str):
+    """Send test email in background to avoid HTTP worker timeouts."""
+    try:
+        from scraper.email_sender import send_test_notification
+
+        send_test_notification(to_email)
+        print(f"[test-email] Sent test email to {to_email}")
+    except Exception:
+        print(f"[test-email] Failed for {to_email}\n{traceback.format_exc()}")
+
+
 def _run_pipeline():
     """Run the full scraper pipeline in a background thread."""
     global _last_run
@@ -93,13 +104,9 @@ def trigger_test_email():
     if not to_email:
         return jsonify({"error": "Missing to_email"}), 400
 
-    try:
-        from scraper.email_sender import send_test_notification
-
-        send_test_notification(to_email)
-        return jsonify({"ok": True, "to_email": to_email}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    thread = threading.Thread(target=_run_test_email, args=(to_email,), daemon=True)
+    thread.start()
+    return jsonify({"ok": True, "queued": True, "to_email": to_email}), 202
 
 
 if __name__ == "__main__":
