@@ -40,6 +40,7 @@ class EmailAutomation:
         self.smtp_server = env.get("SMTP_SERVER", "smtp.gmail.com")
         self.smtp_port = int(env.get("SMTP_PORT", "587"))
         self.smtp_timeout = int(env.get("SMTP_TIMEOUT", "10"))
+        self.smtp_security = env.get("SMTP_SECURITY", "starttls").strip().lower()
 
         if not self.address or not self.password:
             raise ValueError(
@@ -155,10 +156,24 @@ class EmailAutomation:
         attachment["Content-Disposition"] = f'attachment; filename="{excel_path.name}"'
         msg.attach(attachment)
 
-        with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=self.smtp_timeout) as smtp:
-            smtp.starttls()
-            smtp.login(self.address, self.password)
-            smtp.send_message(msg)
+        try:
+            if self.smtp_security == "ssl":
+                with smtplib.SMTP_SSL(self.smtp_server, self.smtp_port, timeout=self.smtp_timeout) as smtp:
+                    smtp.login(self.address, self.password)
+                    smtp.send_message(msg)
+            else:
+                with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=self.smtp_timeout) as smtp:
+                    if self.smtp_security == "starttls":
+                        smtp.starttls()
+                    smtp.login(self.address, self.password)
+                    smtp.send_message(msg)
+        except TimeoutError:
+            if self.smtp_security == "starttls" and self.smtp_port == 587:
+                with smtplib.SMTP_SSL(self.smtp_server, 465, timeout=self.smtp_timeout) as smtp:
+                    smtp.login(self.address, self.password)
+                    smtp.send_message(msg)
+            else:
+                raise
 
         logger.info(f"[email] Reply sent to {recipient}")
 

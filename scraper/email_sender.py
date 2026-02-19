@@ -37,6 +37,7 @@ def send_eta_notification(
     smtp_server = env.get("SMTP_SERVER", "smtp.gmail.com")
     smtp_port = int(env.get("SMTP_PORT", "587"))
     smtp_timeout = int(env.get("SMTP_TIMEOUT", "10"))
+    smtp_security = env.get("SMTP_SECURITY", "starttls").strip().lower()
 
     if not address or not password:
         raise RuntimeError("EMAIL_ADDRESS and EMAIL_PASSWORD must be set")
@@ -91,12 +92,28 @@ def send_eta_notification(
     msg["To"] = to_email
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    with smtplib.SMTP(smtp_server, smtp_port, timeout=smtp_timeout) as server:
-        server.starttls()
-        server.login(address, password)
-        failed = server.send_message(msg)
-        if failed:
-            raise RuntimeError("SMTP rejected recipients: " + str(failed))
+    try:
+        if smtp_security == "ssl":
+            with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=smtp_timeout) as server:
+                server.login(address, password)
+                failed = server.send_message(msg)
+        else:
+            with smtplib.SMTP(smtp_server, smtp_port, timeout=smtp_timeout) as server:
+                if smtp_security == "starttls":
+                    server.starttls()
+                server.login(address, password)
+                failed = server.send_message(msg)
+    except TimeoutError:
+        # Common fallback for providers that work better via implicit TLS.
+        if smtp_security == "starttls" and smtp_port == 587:
+            with smtplib.SMTP_SSL(smtp_server, 465, timeout=smtp_timeout) as server:
+                server.login(address, password)
+                failed = server.send_message(msg)
+        else:
+            raise
+
+    if failed:
+        raise RuntimeError("SMTP rejected recipients: " + str(failed))
 
     logger.info(f"[email] ETA notification sent to {to_email} for {vessel_name}")
 
@@ -108,6 +125,7 @@ def send_test_notification(to_email: str) -> None:
     smtp_server = env.get("SMTP_SERVER", "smtp.gmail.com")
     smtp_port = int(env.get("SMTP_PORT", "587"))
     smtp_timeout = int(env.get("SMTP_TIMEOUT", "10"))
+    smtp_security = env.get("SMTP_SECURITY", "starttls").strip().lower()
 
     if not address or not password:
         raise RuntimeError("EMAIL_ADDRESS and EMAIL_PASSWORD must be set")
@@ -127,11 +145,26 @@ def send_test_notification(to_email: str) -> None:
         )
     )
 
-    with smtplib.SMTP(smtp_server, smtp_port, timeout=smtp_timeout) as server:
-        server.starttls()
-        server.login(address, password)
-        failed = server.send_message(msg)
-        if failed:
-            raise RuntimeError("SMTP rejected recipients: " + str(failed))
+    try:
+        if smtp_security == "ssl":
+            with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=smtp_timeout) as server:
+                server.login(address, password)
+                failed = server.send_message(msg)
+        else:
+            with smtplib.SMTP(smtp_server, smtp_port, timeout=smtp_timeout) as server:
+                if smtp_security == "starttls":
+                    server.starttls()
+                server.login(address, password)
+                failed = server.send_message(msg)
+    except TimeoutError:
+        if smtp_security == "starttls" and smtp_port == 587:
+            with smtplib.SMTP_SSL(smtp_server, 465, timeout=smtp_timeout) as server:
+                server.login(address, password)
+                failed = server.send_message(msg)
+        else:
+            raise
+
+    if failed:
+        raise RuntimeError("SMTP rejected recipients: " + str(failed))
 
     logger.info(f"[email] Test notification sent to {to_email}")

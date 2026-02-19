@@ -142,7 +142,7 @@ export default function WatchlistPage() {
       if (!res.ok) throw new Error(json.error || 'Test email failed');
 
       const target = typeof json.email === 'string' ? json.email : 'deine hinterlegte E-Mail';
-      alert(`Test-E-Mail gesendet an ${target}`);
+      alert(`Test-E-Mail erfolgreich versendet an ${target}`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Test email failed');
     } finally {

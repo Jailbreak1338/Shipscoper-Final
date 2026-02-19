@@ -3,6 +3,7 @@
 import os
 import threading
 import traceback
+import uuid
 from datetime import datetime
 
 from flask import Flask, jsonify, request
@@ -14,17 +15,36 @@ WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 # Simple in-memory state for the last run
 _last_run = {"status": "idle", "started_at": None, "finished_at": None, "summary": None, "error": None}
 _lock = threading.Lock()
+_test_email_jobs = {}
 
 
-def _run_test_email(to_email: str):
+def _run_test_email(job_id: str, to_email: str):
     """Send test email in background to avoid HTTP worker timeouts."""
+    with _lock:
+        _test_email_jobs[job_id] = {
+            "status": "running",
+            "to_email": to_email,
+            "started_at": datetime.utcnow().isoformat(),
+            "finished_at": None,
+            "error": None,
+        }
+
     try:
         from scraper.email_sender import send_test_notification
 
         send_test_notification(to_email)
-        print(f"[test-email] Sent test email to {to_email}")
+        with _lock:
+            _test_email_jobs[job_id]["status"] = "sent"
+            _test_email_jobs[job_id]["finished_at"] = datetime.utcnow().isoformat()
+            _test_email_jobs[job_id]["error"] = None
+        print(f"[test-email] Sent test email to {to_email} (job={job_id})")
     except Exception:
-        print(f"[test-email] Failed for {to_email}\n{traceback.format_exc()}")
+        err = traceback.format_exc()
+        with _lock:
+            _test_email_jobs[job_id]["status"] = "failed"
+            _test_email_jobs[job_id]["finished_at"] = datetime.utcnow().isoformat()
+            _test_email_jobs[job_id]["error"] = err
+        print(f"[test-email] Failed for {to_email} (job={job_id})\n{err}")
 
 
 def _run_pipeline():
@@ -104,9 +124,24 @@ def trigger_test_email():
     if not to_email:
         return jsonify({"error": "Missing to_email"}), 400
 
-    thread = threading.Thread(target=_run_test_email, args=(to_email,), daemon=True)
+    job_id = str(uuid.uuid4())
+    thread = threading.Thread(target=_run_test_email, args=(job_id, to_email), daemon=True)
     thread.start()
-    return jsonify({"ok": True, "queued": True, "to_email": to_email}), 202
+    return jsonify({"ok": True, "queued": True, "to_email": to_email, "job_id": job_id}), 202
+
+
+@app.route("/webhook/test-email-status/<job_id>", methods=["GET"])
+def test_email_status(job_id: str):
+    """Get async test-email job status. Requires X-Webhook-Secret header."""
+    secret = request.headers.get("X-Webhook-Secret", "")
+    if not WEBHOOK_SECRET or secret != WEBHOOK_SECRET:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    with _lock:
+        job = _test_email_jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
+        return jsonify(job), 200
 
 
 if __name__ == "__main__":
