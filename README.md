@@ -2,7 +2,7 @@ ETA Automation - Vessel Schedule Scraper
 
 Automatisiertes Scraping von Schiffsankunftszeiten (ETAs) der Hamburger Container-Terminals **EUROGATE** und **HHLA**, mit Cross-Matching, Excel-Export und E-Mail-Automatisierung.
 
- Features
+Features
 
 - **Eurogate Scraper* — Session-basiert, parst komplexe Rowspan-Tabellen
 - **HHLA Scraper** — Playwright-basiert (JavaScript SPA), 14 Spalten
