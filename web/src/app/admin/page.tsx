@@ -24,6 +24,16 @@ export default function AdminDashboardPage() {
     fetchLastRun();
   }, []);
 
+  useEffect(() => {
+    if (lastRun?.status !== 'running') return;
+
+    const timer = setInterval(() => {
+      fetchLastRun();
+    }, 10000);
+
+    return () => clearInterval(timer);
+  }, [lastRun?.status]);
+
   const fetchLastRun = async () => {
     try {
       const res = await fetch('/api/admin/trigger-scraper', { cache: 'no-store' });

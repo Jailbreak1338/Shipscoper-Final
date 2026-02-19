@@ -107,13 +107,27 @@ export async function POST() {
     }
 
     if (!finalStatus) {
-      // Timeout - scraper still running
-      return NextResponse.json({
-        success: true,
-        run_id: runLog.id,
-        message: 'Scraper started (still running after 5 minutes)',
-        status: 'timeout',
-      });
+      // Timeout: mark run as failed to avoid stale "running" state in UI/DB.
+      await admin
+        .from('scraper_runs')
+        .update({
+          status: 'failed',
+          errors: 'Timeout while waiting for scraper completion status (>5 minutes)',
+          completed_at: new Date().toISOString(),
+        })
+        .eq('id', runLog.id);
+      revalidatePath('/dashboard');
+      revalidatePath('/admin');
+
+      return NextResponse.json(
+        {
+          success: false,
+          run_id: runLog.id,
+          error: 'Scraper status timeout after 5 minutes',
+          status: 'timeout',
+        },
+        { status: 504 }
+      );
     }
 
     const success = finalStatus.status === 'completed';
@@ -206,6 +220,64 @@ export async function GET() {
 
   if (!lastRun) {
     return NextResponse.json({ last_run: null, message: 'No scraper runs found' });
+  }
+
+  // Reconcile stale "running" status against live scraper API status.
+  if (lastRun.status === 'running') {
+    try {
+      let scraperUrl = process.env.RAILWAY_SCRAPER_URL;
+      if (scraperUrl) {
+        if (!scraperUrl.startsWith('http://') && !scraperUrl.startsWith('https://')) {
+          scraperUrl = `https://${scraperUrl}`;
+        }
+
+        const statusResponse = await fetch(`${scraperUrl}/status`, {
+          method: 'GET',
+          cache: 'no-store',
+        });
+
+        if (statusResponse.ok) {
+          const live = await statusResponse.json();
+          if (live.status === 'completed' || live.status === 'failed') {
+            const success = live.status === 'completed';
+            const vesselsScraped = live.summary?.total || 0;
+
+            const { data: reconciled } = await admin
+              .from('scraper_runs')
+              .update({
+                status: success ? 'success' : 'failed',
+                vessels_scraped: vesselsScraped,
+                errors: success ? null : (live.error || 'Unknown scraper error').slice(0, 5000),
+                completed_at: new Date().toISOString(),
+              })
+              .eq('id', lastRun.id)
+              .select()
+              .single();
+
+            if (reconciled) {
+              revalidatePath('/dashboard');
+              revalidatePath('/admin');
+              return NextResponse.json({
+                last_run: {
+                  id: reconciled.id,
+                  status: reconciled.status,
+                  vessels_scraped: reconciled.vessels_scraped,
+                  started_at: reconciled.started_at,
+                  completed_at: reconciled.completed_at,
+                  duration_ms: reconciled.completed_at
+                    ? new Date(reconciled.completed_at).getTime() -
+                      new Date(reconciled.started_at).getTime()
+                    : null,
+                  errors: reconciled.errors,
+                },
+              });
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore reconciliation errors and return DB snapshot.
+    }
   }
 
   return NextResponse.json({
