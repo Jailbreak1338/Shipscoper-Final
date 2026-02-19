@@ -33,16 +33,35 @@ def _get_client():
 
 
 def _parse_german_datetime(dt_str: str) -> str | None:
-    """Convert 'DD.MM.YYYY HH:MM' to ISO 8601 with Europe/Berlin timezone."""
+    """Convert common datetime string formats to ISO 8601 in Europe/Berlin."""
     if not dt_str or not dt_str.strip():
         return None
-    try:
-        naive = datetime.strptime(dt_str.strip(), "%d.%m.%Y %H:%M")
-        aware = naive.replace(tzinfo=BERLIN_TZ)
-        return aware.isoformat()
-    except ValueError:
-        logger.warning(f"[supabase] Could not parse datetime: {dt_str!r}")
-        return None
+    value = dt_str.strip()
+
+    # Scraped sources may provide either German format (DD.MM.YYYY HH:MM)
+    # or ISO-like values (YYYY-MM-DD HH:MM / YYYY-MM-DDTHH:MM[:SS][offset]).
+    dt = None
+
+    for fmt in ("%d.%m.%Y %H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
+        try:
+            dt = datetime.strptime(value, fmt)
+            break
+        except ValueError:
+            continue
+
+    if dt is None:
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            logger.warning(f"[supabase] Could not parse datetime: {dt_str!r}")
+            return None
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=BERLIN_TZ)
+    else:
+        dt = dt.astimezone(BERLIN_TZ)
+
+    return dt.isoformat()
 
 
 def upsert_vessel(name: str) -> str:
