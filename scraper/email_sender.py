@@ -1,4 +1,4 @@
-"""Send ETA change notification emails."""
+﻿"""Send ETA change notification emails."""
 
 import smtplib
 from datetime import datetime
@@ -45,14 +45,14 @@ def send_eta_notification(
     delay_text = f"+{delay_days} Tage" if delay_days > 0 else f"{delay_days} Tage"
     delay_color = "#d32f2f" if delay_days > 0 else "#2e7d32"
 
-    subject = f"ETA-Änderung: {vessel_name}"
+    subject = f"ETA-Aenderung: {vessel_name}"
     if shipment_ref:
         subject += f" ({shipment_ref})"
 
     html_body = f"""\
 <html>
 <body style="font-family: Arial, sans-serif; color: #333;">
-  <h2 style="color: #1a1a2e;">ETA-Änderung erkannt</h2>
+  <h2 style="color: #1a1a2e;">ETA-Aenderung erkannt</h2>
 
   <table style="border-collapse: collapse; width: 100%; max-width: 560px;">
     <tr>
@@ -61,7 +61,7 @@ def send_eta_notification(
     </tr>
     <tr>
       <td style="padding: 10px 14px; background: #f5f7fa; font-weight: 600;">Sendung</td>
-      <td style="padding: 10px 14px;">{shipment_ref or "—"}</td>
+      <td style="padding: 10px 14px;">{shipment_ref or "-"}</td>
     </tr>
     <tr>
       <td style="padding: 10px 14px; background: #f5f7fa; font-weight: 600;">Alte ETA</td>
@@ -72,7 +72,7 @@ def send_eta_notification(
       <td style="padding: 10px 14px; color: #d32f2f; font-weight: 600;">{new_str}</td>
     </tr>
     <tr>
-      <td style="padding: 10px 14px; background: #f5f7fa; font-weight: 600;">Verzögerung</td>
+      <td style="padding: 10px 14px; background: #f5f7fa; font-weight: 600;">Verzoegerung</td>
       <td style="padding: 10px 14px; color: {delay_color}; font-weight: 600;">{delay_text}</td>
     </tr>
   </table>
@@ -93,7 +93,9 @@ def send_eta_notification(
     with smtplib.SMTP(smtp_server, smtp_port) as server:
         server.starttls()
         server.login(address, password)
-        server.send_message(msg)
+        failed = server.send_message(msg)
+        if failed:
+            raise RuntimeError("SMTP rejected recipients: " + str(failed))
 
     logger.info(f"[email] ETA notification sent to {to_email} for {vessel_name}")
 
@@ -126,6 +128,8 @@ def send_test_notification(to_email: str) -> None:
     with smtplib.SMTP(smtp_server, smtp_port) as server:
         server.starttls()
         server.login(address, password)
-        server.send_message(msg)
+        failed = server.send_message(msg)
+        if failed:
+            raise RuntimeError("SMTP rejected recipients: " + str(failed))
 
     logger.info(f"[email] Test notification sent to {to_email}")
