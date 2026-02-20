@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import type { CSSProperties } from 'react';
+import AutoRefresh from '@/components/AutoRefresh';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -45,8 +46,8 @@ export default async function DashboardPage() {
 
   const isAdmin = (roleData as { role: string } | null)?.role === 'admin';
 
-  // Get user's upload history
-  const { data: userUploads, error: uploadsError } = await supabase
+  // Get user's upload history (service-role to avoid RLS read mismatches)
+  const { data: userUploads, error: uploadsError } = await adminClient
     .from('upload_logs')
     .select('*')
     .eq('user_id', session.user.id)
@@ -88,7 +89,7 @@ export default async function DashboardPage() {
   if (isAdmin) {
     const [usersRes, uploadsRes, vesselsRes] = await Promise.all([
       supabase.from('user_roles').select('user_id'),
-      supabase
+      adminClient
         .from('upload_logs')
         .select('processing_time_ms')
         .order('created_at', { ascending: false }),
@@ -114,6 +115,7 @@ export default async function DashboardPage() {
 
   return (
     <div style={styles.container}>
+      <AutoRefresh intervalMs={15000} />
       <h1 style={styles.pageTitle}>Dashboard</h1>
 
       {/* User Stats */}

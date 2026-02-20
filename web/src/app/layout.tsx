@@ -5,8 +5,8 @@ import LogoutButton from '@/components/LogoutButton';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'ETA Automation',
-  description: 'Vessel ETA Excel Updater',
+  title: 'Shipscoper by Tim Kimmich',
+  description: 'Shipscoper by Tim Kimmich',
 };
 
 export const dynamic = 'force-dynamic';
@@ -73,10 +73,10 @@ export default async function RootLayout({
                   fontSize: '14px',
                 }}
               >
-                ETA
+                SK
               </div>
               <span style={{ fontSize: '18px', fontWeight: 600 }}>
-                ETA Automation
+                Shipscoper by Tim Kimmich
               </span>
               <nav style={{ display: 'flex', gap: '16px', marginLeft: '16px' }}>
                 <a

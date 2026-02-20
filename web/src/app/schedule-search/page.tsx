@@ -14,6 +14,7 @@ type SearchParams = {
   pageSize?: string;
   sort?: string;
   etaWindow?: string;
+  snr?: string;
 };
 
 type ScheduleEventRowRaw = {
@@ -93,7 +94,7 @@ function applySort(query: any, sort: string) {
 }
 
 function toRows(rows: ScheduleEventRowRaw[]): SearchRow[] {
-  return rows.map((row) => {
+  const mapped = rows.map((row) => {
     const vesselData = row.vessels;
     const vesselName = Array.isArray(vesselData)
       ? (vesselData[0]?.name ?? '-')
@@ -109,6 +110,17 @@ function toRows(rows: ScheduleEventRowRaw[]): SearchRow[] {
       scraped_at: row.scraped_at,
     };
   });
+
+  // keep latest entry per vessel/source to avoid duplicate history rows across terminals
+  const seen = new Set<string>();
+  const deduped: SearchRow[] = [];
+  for (const row of mapped) {
+    const key = `${row.vessel_name_normalized}|${row.source}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(row);
+  }
+  return deduped;
 }
 
 function withParams(base: Record<string, string>, patch: Record<string, string | undefined>) {
@@ -139,6 +151,7 @@ export default async function ScheduleSearchPage({
   const source = (searchParams.source ?? 'all').trim().toLowerCase();
   const sort = (searchParams.sort ?? 'scraped_desc').trim().toLowerCase();
   const etaWindow = (searchParams.etaWindow ?? 'all').trim().toLowerCase();
+  const snr = (searchParams.snr ?? '').trim();
   const page = parsePositiveInt(searchParams.page, 1);
   const requestedPageSize = parsePositiveInt(searchParams.pageSize, 25);
   const pageSize = PAGE_SIZE_OPTIONS.includes(requestedPageSize as (typeof PAGE_SIZE_OPTIONS)[number])
@@ -171,7 +184,7 @@ export default async function ScheduleSearchPage({
       .maybeSingle(),
     supabase
       .from('vessel_watches')
-      .select('vessel_name_normalized')
+      .select('vessel_name_normalized, shipment_reference')
       .eq('user_id', session.user.id),
   ]);
 
@@ -193,10 +206,33 @@ export default async function ScheduleSearchPage({
   if (source !== 'all') baseParams.source = source;
   if (sort !== 'scraped_desc') baseParams.sort = sort;
   if (etaWindow !== 'all') baseParams.etaWindow = etaWindow;
+  if (snr) baseParams.snr = snr;
   if (pageSize !== 25) baseParams.pageSize = String(pageSize);
 
   const exportHref = withParams(baseParams, {});
-  const watched = (watchedRes.data ?? []).map((r) => r.vessel_name_normalized);
+  const watchedRows = (watchedRes.data ?? []) as Array<{
+    vessel_name_normalized: string;
+    shipment_reference: string | null;
+  }>;
+
+  const watched = watchedRows.map((r) => r.vessel_name_normalized);
+  const shipmentByVessel = watchedRows.reduce<Record<string, string[]>>((acc, row) => {
+    if (!row.shipment_reference) return acc;
+    const values = row.shipment_reference
+     .split(/[;,\n]/)
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+    if (values.length === 0) return acc;
+    const existing = acc[row.vessel_name_normalized] ?? [];
+    for (const value of values) {
+      if (!existing.includes(value)) {
+        existing.push(value);
+      }
+    }
+    acc[row.vessel_name_normalized] = existing;
+    return acc;
+  }, {});
   const lastRun = lastRunRes.data;
   const lastRunText = lastRun
     ? `${formatDateTime(lastRun.started_at)} (${lastRun.status})`
@@ -206,7 +242,7 @@ export default async function ScheduleSearchPage({
     <div style={styles.container}>
       <h1 style={styles.pageTitle}>Datenbank Suche</h1>
       <p style={styles.subtitle}>
-        Volltextsuche ueber alle gespeicherten Datensaetze mit Export und Watchlist-Quick-Add.
+        Volltextsuche über alle gespeicherten Datensätze mit Export und Watchlist-Quick-Add.
       </p>
 
       <div style={styles.statsGrid}>
@@ -230,6 +266,7 @@ export default async function ScheduleSearchPage({
 
       <form method="GET" style={styles.filters}>
         <input type="text" name="q" defaultValue={q} placeholder="Vessel suchen (z.B. NORDICA)" style={styles.input} />
+        <input type="text" name="snr" defaultValue={snr} placeholder="S-Nr. suchen (z.B. S00226629)" style={styles.input} />
         <select name="source" defaultValue={source} style={styles.select}>
           <option value="all">Alle Quellen</option>
           <option value="eurogate">Eurogate</option>
@@ -265,13 +302,18 @@ export default async function ScheduleSearchPage({
       </form>
 
       <div style={styles.quickWrap}>
-        <a href={withParams(baseParams, { etaWindow: '7d', page: '1' })} style={styles.quickChip}>Naechste 7 Tage</a>
+        <a href={withParams(baseParams, { etaWindow: '7d', page: '1' })} style={styles.quickChip}>Nächste 7 Tage</a>
         <a href={withParams(baseParams, { etaWindow: 'unknown', page: '1' })} style={styles.quickChip}>Ohne ETA</a>
         <a href={withParams(baseParams, { source: 'eurogate', page: '1' })} style={styles.quickChip}>Nur Eurogate</a>
         <a href={withParams(baseParams, { source: 'hhla', page: '1' })} style={styles.quickChip}>Nur HHLA</a>
       </div>
 
-      <ScheduleSearchTable rows={rows} initiallyWatched={watched} />
+      <ScheduleSearchTable
+        rows={rows}
+        initiallyWatched={watched}
+        initialShipmentByVessel={shipmentByVessel}
+        initialSnrFilter={snr}
+      />
 
       <div style={styles.pager}>
         <span style={styles.pagerText}>
@@ -280,10 +322,10 @@ export default async function ScheduleSearchPage({
         <div style={{ display: 'flex', gap: '8px' }}>
           {page > 1 ? (
             <a href={withParams(baseParams, { page: String(page - 1) })} style={styles.btnGhost}>
-              Zurueck
+              Zurück
             </a>
           ) : (
-            <span style={styles.btnDisabled}>Zurueck</span>
+            <span style={styles.btnDisabled}>Zurück</span>
           )}
           {page < totalPages ? (
             <a href={withParams(baseParams, { page: String(page + 1) })} style={styles.btnPrimary}>

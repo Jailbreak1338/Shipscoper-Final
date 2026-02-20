@@ -37,8 +37,8 @@ export default function LoginPage() {
     <div style={styles.wrapper}>
       <div style={styles.card}>
         <div style={styles.logoRow}>
-          <div style={styles.logo}>ETA</div>
-          <h1 style={styles.title}>Vessel ETA Updater</h1>
+          <div style={styles.logo}>SK</div>
+          <h1 style={styles.title}>Shipscoper by Tim Kimmich</h1>
         </div>
         <p style={styles.subtitle}>Bitte melden Sie sich an</p>
 
