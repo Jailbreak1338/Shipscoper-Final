@@ -50,6 +50,7 @@ export default function ScheduleSearchTable({
   const [shipmentInput, setShipmentInput] = useState<Record<string, string>>({});
   const [shipmentSuggestions, setShipmentSuggestions] = useState<Record<string, string[]>>({});
   const [snrFilter, setSnrFilter] = useState(initialSnrFilter ?? '');
+  const [onlyUnassigned, setOnlyUnassigned] = useState(false);
 
   const uniqueVesselsOnPage = useMemo(() => {
     const names = new Set(rows.map((r) => r.vessel_name_normalized));
@@ -58,12 +59,14 @@ export default function ScheduleSearchTable({
 
   const filteredRows = useMemo(() => {
     const q = snrFilter.trim().toLowerCase();
-    if (!q) return rows;
+
     return rows.filter((row) => {
       const vesselShipments = shipmentByVessel[row.vessel_name_normalized] ?? [];
+      if (onlyUnassigned && vesselShipments.length > 0) return false;
+      if (!q) return true;
       return vesselShipments.some((snr) => snr.toLowerCase().includes(q));
     });
-  }, [rows, shipmentByVessel, snrFilter]);
+  }, [rows, shipmentByVessel, snrFilter, onlyUnassigned]);
 
   const fetchShipmentSuggestions = async (key: string, query: string) => {
     if (query.trim().length < 2) {
@@ -133,6 +136,34 @@ export default function ScheduleSearchTable({
     }
   };
 
+
+  const bulkAssignFromFilter = async () => {
+    const value = snrFilter.trim();
+    if (!value) {
+      setFlash('Bitte zuerst eine S-Nr. im Filterfeld eingeben.');
+      return;
+    }
+
+    const rowsToAssign = filteredRows.filter((row) => {
+      const assigned = shipmentByVessel[row.vessel_name_normalized] ?? [];
+      return !assigned.includes(value);
+    });
+
+    if (rowsToAssign.length === 0) {
+      setFlash('Alle sichtbaren Schiffe haben diese S-Nr. bereits.');
+      return;
+    }
+
+    const cappedRows = rowsToAssign.slice(0, 20);
+    for (const row of cappedRows) {
+      await addToWatchlist(row, value);
+    }
+
+    setFlash(
+      `S-Nr. ${value} wurde ${cappedRows.length} sichtbaren Schiffen zugeordnet.` +
+        (rowsToAssign.length > cappedRows.length ? ' (auf 20 Schiffe begrenzt)' : '')
+    );
+  };
   return (
     <div style={styles.wrap}>
       <div style={styles.headerRow}>
@@ -147,6 +178,17 @@ export default function ScheduleSearchTable({
             placeholder="Suche nach S-Nr."
             style={styles.input}
           />
+          <label style={styles.checkLabel}>
+            <input
+              type="checkbox"
+              checked={onlyUnassigned}
+              onChange={(e) => setOnlyUnassigned(e.target.checked)}
+            />
+            Nur ohne S-Nr.
+          </label>
+          <button type="button" style={styles.bulkBtn} onClick={bulkAssignFromFilter}>
+            Filter-S-Nr. zuordnen
+          </button>
           {flash && <div style={styles.flash}>{flash}</div>}
         </div>
       </div>
@@ -298,6 +340,23 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid #a5f3fc',
     borderRadius: '8px',
     padding: '6px 10px',
+  },
+  checkLabel: {
+    fontSize: '12px',
+    color: '#475569',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  bulkBtn: {
+    border: '1px solid #bbf7d0',
+    backgroundColor: '#f0fdf4',
+    color: '#166534',
+    borderRadius: '8px',
+    padding: '7px 10px',
+    fontSize: '12px',
+    fontWeight: 700,
+    cursor: 'pointer',
   },
   tableWrap: {
     backgroundColor: '#fff',
