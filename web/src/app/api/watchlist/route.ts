@@ -93,20 +93,32 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      if (shipmentReference && existing.shipment_reference !== shipmentReference) {
-        const { data: updated, error: updateErr } = await supabase
-          .from('vessel_watches')
-          .update({ shipment_reference: shipmentReference })
-          .eq('id', existing.id)
-          .select()
-          .single();
+      if (shipmentReference) {
+        const merged = Array.from(
+          new Set(
+            String(existing.shipment_reference || '')
+             .split(/[;,\n]/)
+              .map((v) => v.trim())
+              .filter(Boolean)
+              .concat(shipmentReference)
+          )
+        ).join(', ');
 
-        if (updateErr) {
-          console.error('Failed to update shipment reference on existing watch:', updateErr);
-          return NextResponse.json({ error: updateErr.message }, { status: 500 });
+        if (merged !== (existing.shipment_reference || '')) {
+          const { data: updated, error: updateErr } = await supabase
+            .from('vessel_watches')
+            .update({ shipment_reference: merged })
+            .eq('id', existing.id)
+            .select()
+            .single();
+
+          if (updateErr) {
+            console.error('Failed to update shipment reference on existing watch:', updateErr);
+            return NextResponse.json({ error: updateErr.message }, { status: 500 });
+          }
+
+          return NextResponse.json({ watch: updated, updatedExisting: true }, { status: 200 });
         }
-
-        return NextResponse.json({ watch: updated, updatedExisting: true }, { status: 200 });
       }
 
       return NextResponse.json({ watch: existing, updatedExisting: false }, { status: 200 });

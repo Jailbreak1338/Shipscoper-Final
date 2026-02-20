@@ -6,15 +6,25 @@ import { useRouter } from 'next/navigation';
 export default function AutoRefresh({ intervalMs = 15000 }: { intervalMs?: number }) {
   const router = useRouter();
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
       router.refresh();
       setLastRefresh(new Date());
+      setRefreshTick((t) => t + 1);
     }, intervalMs);
 
     return () => window.clearInterval(timer);
   }, [intervalMs, router]);
+
+  useEffect(() => {
+    // In production some browser/app-router combinations can keep stale RSC payloads.
+    // Force a hard reload every 4 refresh cycles as a safety net.
+    if (refreshTick > 0 && refreshTick % 4 === 0) {
+      window.location.reload();
+    }
+  }, [refreshTick]);
 
   return (
     <div style={styles.wrap}>

@@ -29,6 +29,7 @@ interface UpdateSummary {
     oldEta: string | null;
     newEta: string | null;
   }>;
+  autoAssignedShipments?: number;
 }
 
 type Step = 'upload' | 'columns' | 'processing' | 'result';
@@ -441,6 +442,9 @@ export default function EtaUpdaterPage() {
             <p style={{ margin: '0 0 12px', color: '#4b5563', fontSize: '14px' }}>
               Übersprungen (alt): {summary.skippedOld} · Übersprungen (verzollt):{' '}
               {summary.skippedCustoms}
+              {typeof summary.autoAssignedShipments === 'number' ? (
+                <> · Auto-Zuordnungen S-Nr.: {summary.autoAssignedShipments}</>
+              ) : null}
             </p>
 
             {groupedEtaChanges.length > 0 ? (

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import LogoutButton from '@/components/LogoutButton';
+import ThemeToggle from '@/components/ThemeToggle';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -43,15 +44,15 @@ export default async function RootLayout({
           margin: 0,
           fontFamily:
             '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-          backgroundColor: '#f5f7fa',
-          color: '#1a1a2e',
+          backgroundColor: 'var(--bg-app)',
+          color: 'var(--text-primary)',
           minHeight: '100vh',
         }}
       >
         {session && (
           <header
             style={{
-              backgroundColor: '#1a1a2e',
+              backgroundColor: 'var(--header-bg)',
               color: '#fff',
               padding: '16px 24px',
               display: 'flex',
@@ -82,7 +83,7 @@ export default async function RootLayout({
                 <a
                   href="/eta-updater"
                   style={{
-                    color: 'rgba(255,255,255,0.8)',
+                    color: 'var(--header-link)',
                     textDecoration: 'none',
                     fontSize: '14px',
                   }}
@@ -92,7 +93,7 @@ export default async function RootLayout({
                 <a
                   href="/dashboard"
                   style={{
-                    color: 'rgba(255,255,255,0.8)',
+                    color: 'var(--header-link)',
                     textDecoration: 'none',
                     fontSize: '14px',
                   }}
@@ -102,7 +103,7 @@ export default async function RootLayout({
                 <a
                   href="/watchlist"
                   style={{
-                    color: 'rgba(255,255,255,0.8)',
+                    color: 'var(--header-link)',
                     textDecoration: 'none',
                     fontSize: '14px',
                   }}
@@ -112,7 +113,7 @@ export default async function RootLayout({
                 <a
                   href="/schedule-search"
                   style={{
-                    color: 'rgba(255,255,255,0.8)',
+                    color: 'var(--header-link)',
                     textDecoration: 'none',
                     fontSize: '14px',
                   }}
@@ -138,11 +139,12 @@ export default async function RootLayout({
               <span
                 style={{
                   fontSize: '13px',
-                  color: 'rgba(255,255,255,0.6)',
+                  color: 'var(--text-secondary)',
                 }}
               >
                 {session.user.email}
               </span>
+              <ThemeToggle />
               <LogoutButton />
             </div>
           </header>

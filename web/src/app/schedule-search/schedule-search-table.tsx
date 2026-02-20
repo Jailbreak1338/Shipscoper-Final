@@ -10,6 +10,8 @@ export type SearchRow = {
   etd: string | null;
   terminal: string | null;
   scraped_at: string;
+  previous_eta: string | null;
+  eta_change_days: number | null;
 };
 
 function formatDateTime(value: string | null): string {
@@ -19,7 +21,19 @@ function formatDateTime(value: string | null): string {
   });
 }
 
+function formatEtaChange(days: number | null): string {
+  if (days == null || days === 0) return '-';
+  return `${days > 0 ? '+' : ''}${days} Tage`;
+}
+
 type ShipmentMap = Record<string, string[]>;
+
+function parseShipmentValues(input: string | null | undefined): string[] {
+  return String(input ?? '')
+    .split(/[;,\n]/)
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
 
 export default function ScheduleSearchTable({
   rows,
@@ -43,6 +57,7 @@ export default function ScheduleSearchTable({
   const [shipmentInput, setShipmentInput] = useState<Record<string, string>>({});
   const [shipmentSuggestions, setShipmentSuggestions] = useState<Record<string, string[]>>({});
   const [snrFilter, setSnrFilter] = useState(initialSnrFilter ?? '');
+  const [onlyUnassigned, setOnlyUnassigned] = useState(false);
 
   const uniqueVesselsOnPage = useMemo(() => {
     const names = new Set(rows.map((r) => r.vessel_name_normalized));
@@ -51,12 +66,14 @@ export default function ScheduleSearchTable({
 
   const filteredRows = useMemo(() => {
     const q = snrFilter.trim().toLowerCase();
-    if (!q) return rows;
+
     return rows.filter((row) => {
       const vesselShipments = shipmentByVessel[row.vessel_name_normalized] ?? [];
+      if (onlyUnassigned && vesselShipments.length > 0) return false;
+      if (!q) return true;
       return vesselShipments.some((snr) => snr.toLowerCase().includes(q));
     });
-  }, [rows, shipmentByVessel, snrFilter]);
+  }, [rows, shipmentByVessel, snrFilter, onlyUnassigned]);
 
   const fetchShipmentSuggestions = async (key: string, query: string) => {
     if (query.trim().length < 2) {
@@ -96,16 +113,18 @@ export default function ScheduleSearchTable({
       if (res.ok || res.status === 409) {
         setWatchedSet((prev) => new Set(prev).add(normalized));
 
-        const savedShipment =
+        const savedShipmentValues = parseShipmentValues(
           typeof body?.watch?.shipment_reference === 'string'
-            ? body.watch.shipment_reference.trim()
-            : shipmentReference?.trim() || '';
+            ? body.watch.shipment_reference
+            : shipmentReference
+        );
 
-        if (savedShipment) {
+        if (savedShipmentValues.length > 0) {
           setShipmentByVessel((prev) => {
             const existing = prev[normalized] ?? [];
-            if (existing.includes(savedShipment)) return prev;
-            return { ...prev, [normalized]: [...existing, savedShipment] };
+            const merged = Array.from(new Set([...existing, ...savedShipmentValues]));
+            if (merged.length === existing.length) return prev;
+            return { ...prev, [normalized]: merged };
           });
         }
 
@@ -124,6 +143,34 @@ export default function ScheduleSearchTable({
     }
   };
 
+
+  const bulkAssignFromFilter = async () => {
+    const value = snrFilter.trim();
+    if (!value) {
+      setFlash('Bitte zuerst eine S-Nr. im Filterfeld eingeben.');
+      return;
+    }
+
+    const rowsToAssign = filteredRows.filter((row) => {
+      const assigned = shipmentByVessel[row.vessel_name_normalized] ?? [];
+      return !assigned.includes(value);
+    });
+
+    if (rowsToAssign.length === 0) {
+      setFlash('Alle sichtbaren Schiffe haben diese S-Nr. bereits.');
+      return;
+    }
+
+    const cappedRows = rowsToAssign.slice(0, 20);
+    for (const row of cappedRows) {
+      await addToWatchlist(row, value);
+    }
+
+    setFlash(
+      `S-Nr. ${value} wurde ${cappedRows.length} sichtbaren Schiffen zugeordnet.` +
+        (rowsToAssign.length > cappedRows.length ? ' (auf 20 Schiffe begrenzt)' : '')
+    );
+  };
   return (
     <div style={styles.wrap}>
       <div style={styles.headerRow}>
@@ -138,6 +185,17 @@ export default function ScheduleSearchTable({
             placeholder="Suche nach S-Nr."
             style={styles.input}
           />
+          <label style={styles.checkLabel}>
+            <input
+              type="checkbox"
+              checked={onlyUnassigned}
+              onChange={(e) => setOnlyUnassigned(e.target.checked)}
+            />
+            Nur ohne S-Nr.
+          </label>
+          <button type="button" style={styles.bulkBtn} onClick={bulkAssignFromFilter}>
+            Filter-S-Nr. zuordnen
+          </button>
           {flash && <div style={styles.flash}>{flash}</div>}
         </div>
       </div>
@@ -148,7 +206,9 @@ export default function ScheduleSearchTable({
             <tr>
               <th style={styles.th}>Vessel</th>
               <th style={styles.th}>Quelle</th>
-              <th style={styles.th}>ETA</th>
+              <th style={styles.th}>Neues ETA</th>
+              <th style={styles.th}>Letztes ETA</th>
+              <th style={styles.th}>Δ seit letztem Scrape</th>
               <th style={styles.th}>ETD</th>
               <th style={styles.th}>Terminal</th>
               <th style={styles.th}>Scraped At</th>
@@ -159,7 +219,7 @@ export default function ScheduleSearchTable({
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ ...styles.td, textAlign: 'center', color: '#777' }}>
+                <td colSpan={10} style={{ ...styles.td, textAlign: 'center', color: '#777' }}>
                   Keine Daten gefunden
                 </td>
               </tr>
@@ -178,6 +238,8 @@ export default function ScheduleSearchTable({
                     <td style={styles.td}>{row.vessel_name}</td>
                     <td style={styles.td}>{row.source}</td>
                     <td style={styles.td}>{formatDateTime(row.eta)}</td>
+                    <td style={styles.td}>{formatDateTime(row.previous_eta)}</td>
+                    <td style={styles.td}>{formatEtaChange(row.eta_change_days)}</td>
                     <td style={styles.td}>{formatDateTime(row.etd)}</td>
                     <td style={styles.td}>{row.terminal ?? '-'}</td>
                     <td style={styles.td}>{formatDateTime(row.scraped_at)}</td>
@@ -289,6 +351,23 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid #a5f3fc',
     borderRadius: '8px',
     padding: '6px 10px',
+  },
+  checkLabel: {
+    fontSize: '12px',
+    color: '#475569',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  bulkBtn: {
+    border: '1px solid #bbf7d0',
+    backgroundColor: '#f0fdf4',
+    color: '#166534',
+    borderRadius: '8px',
+    padding: '7px 10px',
+    fontSize: '12px',
+    fontWeight: 700,
+    cursor: 'pointer',
   },
   tableWrap: {
     backgroundColor: '#fff',

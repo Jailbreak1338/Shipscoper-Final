@@ -1,3 +1,43 @@
+:root {
+  --bg-app: #f5f7fa;
+  --text-primary: #1a1a2e;
+  --text-secondary: #64748b;
+  --surface: #ffffff;
+  --surface-muted: #f8fafc;
+  --border: #e5e7eb;
+  --border-strong: #cbd5e1;
+  --header-bg: #1a1a2e;
+  --header-link: rgba(255, 255, 255, 0.8);
+}
+
+:root[data-theme='dark'] {
+  --bg-app: #0f172a;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --surface: #111827;
+  --surface-muted: #1f2937;
+  --border: #374151;
+  --border-strong: #475569;
+  --header-bg: #020617;
+  --header-link: #cbd5e1;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--bg-app);
+  color: var(--text-primary);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+a {
+  color: inherit;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);

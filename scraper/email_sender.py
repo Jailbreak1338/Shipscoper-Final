@@ -42,14 +42,14 @@ def _resolve_smtp_host(host: str, port: int) -> list[str]:
 
 
 
-def _smtp_preflight(host: str, port: int, timeout: int) -> None:
+def _smtp_preflight(host: str, port: int, timeout: int, max_ips: int = 2) -> None:
     """Quick TCP connectivity probe to avoid long hangs across multiple addresses."""
     ips = _resolve_smtp_host(host, port)
     if not ips:
         return
 
     errors: list[str] = []
-    for ip in ips:
+    for ip in ips[:max_ips]:
         started = time.monotonic()
         try:
             with socket.create_connection((ip, port), timeout=timeout):
