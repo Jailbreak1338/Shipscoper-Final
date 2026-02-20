@@ -24,7 +24,6 @@ export default function WatchlistPage() {
   const [error, setError] = useState('');
 
   const [vesselName, setVesselName] = useState('');
-  const [shipmentRef, setShipmentRef] = useState('');
   const [adding, setAdding] = useState(false);
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
   const [watchSearch, setWatchSearch] = useState('');
@@ -95,7 +94,6 @@ export default function WatchlistPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           vesselName: vesselName.trim(),
-          shipmentReference: shipmentRef.trim() || null,
         }),
       });
       const json = await res.json();
@@ -111,7 +109,6 @@ export default function WatchlistPage() {
         return [json.watch, ...prev];
       });
       setVesselName('');
-      setShipmentRef('');
       setSuggestions([]);
       setShowSuggestions(false);
     } catch (err: unknown) {
@@ -188,7 +185,7 @@ export default function WatchlistPage() {
     <div style={styles.container}>
       <h1 style={styles.pageTitle}>Vessel Watchlist</h1>
       <p style={styles.subtitle}>
-        Vessels beobachten und bei ETA-Aenderungen benachrichtigt werden.
+        Vessels beobachten; S-Nr. werden automatisch über Excel-Uploads zugeordnet.
       </p>
 
       <div style={{ marginBottom: '14px' }}>
@@ -238,13 +235,6 @@ export default function WatchlistPage() {
               </div>
             )}
           </div>
-          <input
-            type="text"
-            placeholder="Sendungsnummer (optional)"
-            value={shipmentRef}
-            onChange={(e) => setShipmentRef(e.target.value)}
-            style={{ ...styles.input, maxWidth: '220px' }}
-          />
           <button type="submit" disabled={adding} style={styles.btnAdd}>
             {adding ? 'Wird hinzugefügt...' : 'Hinzufügen'}
           </button>
@@ -277,7 +267,7 @@ export default function WatchlistPage() {
           <p style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>
             Noch keine Vessels auf der Watchlist
           </p>
-          <p style={{ margin: '8px 0 0', color: '#666' }}>
+          <p style={{ margin: '8px 0 0', color: 'var(--text-secondary)' }}>
             Füge oben ein Vessel hinzu, um bei ETA-Änderungen benachrichtigt zu werden.
           </p>
         </div>
@@ -307,14 +297,14 @@ export default function WatchlistPage() {
                       onClick={() => handleToggleNotification(watch)}
                       style={{
                         ...styles.btnToggle,
-                        backgroundColor: watch.notification_enabled ? '#dcfce7' : '#f3f4f6',
-                        color: watch.notification_enabled ? '#15803d' : '#888',
+                        backgroundColor: watch.notification_enabled ? 'rgba(34,197,94,0.2)' : 'var(--surface-muted)',
+                        color: watch.notification_enabled ? '#22c55e' : 'var(--text-secondary)',
                       }}
                     >
                       {watch.notification_enabled ? 'Aktiv' : 'Aus'}
                     </button>
                   </td>
-                  <td style={{ ...styles.td, color: '#666', fontSize: '13px' }}>
+                  <td style={{ ...styles.td, color: 'var(--text-secondary)', fontSize: '13px' }}>
                     {formatDate(watch.created_at)}
                   </td>
                   <td style={styles.td}>
@@ -345,7 +335,7 @@ const styles: Record<string, CSSProperties> = {
   },
   subtitle: {
     margin: '0 0 24px',
-    color: '#666',
+    color: 'var(--text-secondary)',
     fontSize: '14px',
   },
   form: {
@@ -369,17 +359,19 @@ const styles: Record<string, CSSProperties> = {
     minWidth: '200px',
     padding: '10px 14px',
     fontSize: '14px',
-    border: '1px solid #d1d5db',
+    border: '1px solid var(--border)',
     borderRadius: '8px',
     outline: 'none',
+    backgroundColor: 'var(--surface)',
+    color: 'var(--text-primary)',
   },
   dropdown: {
     position: 'absolute',
     top: '100%',
     left: 0,
     right: 0,
-    backgroundColor: '#fff',
-    border: '1px solid #d1d5db',
+    backgroundColor: 'var(--surface)',
+    border: '1px solid var(--border)',
     borderRadius: '8px',
     marginTop: '4px',
     boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
@@ -391,7 +383,7 @@ const styles: Record<string, CSSProperties> = {
     padding: '10px 14px',
     fontSize: '14px',
     cursor: 'pointer',
-    borderBottom: '1px solid #f3f4f6',
+    borderBottom: '1px solid var(--border)',
   },
   btnAdd: {
     padding: '10px 20px',
@@ -416,10 +408,10 @@ const styles: Record<string, CSSProperties> = {
   },
   error: {
     padding: '12px 16px',
-    backgroundColor: '#fef2f2',
+    backgroundColor: 'var(--surface-muted)',
     border: '1px solid #fecaca',
     borderRadius: '8px',
-    color: '#b91c1c',
+    color: '#ef4444',
     fontSize: '14px',
     marginBottom: '16px',
     display: 'flex',
@@ -429,27 +421,27 @@ const styles: Record<string, CSSProperties> = {
   errorClose: {
     background: 'none',
     border: 'none',
-    color: '#b91c1c',
+    color: '#ef4444',
     fontSize: '16px',
     cursor: 'pointer',
     padding: '0 4px',
   },
   loadingText: {
     textAlign: 'center',
-    color: '#666',
+    color: 'var(--text-secondary)',
     padding: '32px',
   },
   empty: {
     textAlign: 'center',
     padding: '48px 24px',
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
     borderRadius: '12px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+    border: '1px solid var(--border)',
   },
   tableWrap: {
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
     borderRadius: '12px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+    border: '1px solid var(--border)',
     overflow: 'auto',
   },
   table: {
@@ -461,13 +453,13 @@ const styles: Record<string, CSSProperties> = {
     textAlign: 'left',
     fontWeight: 600,
     fontSize: '13px',
-    color: '#666',
-    borderBottom: '1px solid #e5e7eb',
+    color: 'var(--text-secondary)',
+    borderBottom: '1px solid var(--border)',
     whiteSpace: 'nowrap',
   },
   td: {
     padding: '12px 16px',
-    borderBottom: '1px solid #f3f4f6',
+    borderBottom: '1px solid var(--border)',
     fontSize: '14px',
   },
   btnToggle: {
@@ -480,8 +472,8 @@ const styles: Record<string, CSSProperties> = {
   },
   btnDelete: {
     padding: '4px 12px',
-    backgroundColor: '#fef2f2',
-    color: '#b91c1c',
+    backgroundColor: 'var(--surface-muted)',
+    color: '#ef4444',
     border: '1px solid #fecaca',
     borderRadius: '6px',
     fontSize: '13px',

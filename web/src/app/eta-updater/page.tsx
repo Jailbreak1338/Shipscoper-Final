@@ -303,7 +303,7 @@ export default function EtaUpdaterPage() {
                 ? 'Datei wird analysiert...'
                 : 'Excel-Datei hier ablegen'}
             </p>
-            <p style={{ margin: 0, fontSize: '14px', color: '#888' }}>
+            <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-secondary)' }}>
               oder klicken zum Auswählen (.xlsx / .xls, max 10 MB)
             </p>
           </div>
@@ -314,7 +314,7 @@ export default function EtaUpdaterPage() {
             <p style={{ margin: '0 0 4px', fontSize: '14px', color: 'var(--text-secondary)' }}>
               Datei: <strong>{file?.name}</strong>
             </p>
-            <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#888' }}>
+            <p style={{ margin: '0 0 16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
               Spalten automatisch erkannt. Bei Bedarf anpassen.
             </p>
 
@@ -530,6 +530,7 @@ const styles: Record<string, CSSProperties> = {
   },
   card: {
     backgroundColor: 'var(--surface)',
+    border: '1px solid var(--border)',
     borderRadius: '12px',
     padding: '32px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)',
@@ -631,7 +632,7 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid var(--border)',
     borderRadius: '10px',
     padding: '14px 16px',
-    backgroundColor: '#f9fafb',
+    backgroundColor: 'var(--surface-muted)',
   },
   statusBadge: {
     display: 'inline-block',
@@ -650,13 +651,13 @@ const styles: Record<string, CSSProperties> = {
     listStyle: 'none',
   },
   shipmentRow: {
-    borderTop: '1px solid #e5e7eb',
+    borderTop: '1px solid var(--border)',
     padding: '10px 2px 2px',
     fontSize: '15px',
   },
   unmatchedBox: {
     padding: '16px',
-    backgroundColor: '#fffbeb',
+    backgroundColor: 'var(--surface-muted)',
     border: '1px solid #fde68a',
     borderRadius: '8px',
     fontSize: '14px',
@@ -666,14 +667,14 @@ const styles: Record<string, CSSProperties> = {
     padding: '14px',
     borderRadius: '8px',
     border: '1px solid var(--border)',
-    backgroundColor: '#f9fafb',
-    color: '#374151',
+    backgroundColor: 'var(--surface-muted)',
+    color: 'var(--text-primary)',
     fontSize: '14px',
   },
   spinner: {
     width: '40px',
     height: '40px',
-    border: '4px solid #e5e7eb',
+    border: '4px solid var(--border)',
     borderTopColor: '#0066cc',
     borderRadius: '50%',
     margin: '0 auto',

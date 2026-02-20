@@ -417,8 +417,8 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '12px',
     fontWeight: 700,
     padding: '6px 10px',
-    backgroundColor: '#f8fafc',
-    color: '#334155',
+    backgroundColor: 'var(--surface-muted)',
+    color: 'var(--text-primary)',
     cursor: 'pointer',
   },
   menuBox: {
@@ -426,7 +426,7 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid #e2e8f0',
     borderRadius: '8px',
     padding: '8px',
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'var(--surface-muted)',
     minWidth: '220px',
   },
   menuInput: {
@@ -442,7 +442,7 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid #e2e8f0',
     borderRadius: '6px',
     overflow: 'hidden',
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
   },
   suggestionItem: {
     width: '100%',
@@ -450,7 +450,7 @@ const styles: Record<string, CSSProperties> = {
     padding: '6px 8px',
     border: 'none',
     borderBottom: '1px solid #f1f5f9',
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
     cursor: 'pointer',
     fontSize: '13px',
   },

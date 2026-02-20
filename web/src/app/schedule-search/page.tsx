@@ -445,6 +445,8 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: '8px',
     border: '1px solid var(--border)',
     fontSize: '14px',
+    backgroundColor: 'var(--surface)',
+    color: 'var(--text-primary)',
   },
   select: {
     minWidth: '170px',
@@ -453,6 +455,7 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid var(--border)',
     fontSize: '14px',
     backgroundColor: 'var(--surface)',
+    color: 'var(--text-primary)',
   },
   btnPrimary: {
     padding: '10px 14px',
@@ -493,7 +496,7 @@ const styles: Record<string, CSSProperties> = {
   },
   btnDisabled: {
     padding: '10px 14px',
-    backgroundColor: '#e5e7eb',
+    backgroundColor: 'var(--surface-muted)',
     color: '#94a3b8',
     borderRadius: '8px',
     fontWeight: 600,
@@ -509,7 +512,7 @@ const styles: Record<string, CSSProperties> = {
   },
   pagerText: {
     fontSize: '13px',
-    color: '#64748b',
+    color: 'var(--text-secondary)',
   },
   errorBox: {
     padding: '12px',

@@ -58,12 +58,10 @@ async function autoAssignShipmentsFromUpload(params: {
   const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
   const admin = getSupabaseAdmin();
 
-  const normalizedNames = Array.from(assignmentByVessel.keys());
   const { data: existingRows, error: existingError } = await admin
     .from('vessel_watches')
     .select('id, vessel_name_normalized, shipment_reference')
-    .eq('user_id', params.userId)
-    .in('vessel_name_normalized', normalizedNames);
+    .eq('user_id', params.userId);
 
   if (existingError) {
     console.error('autoAssignShipmentsFromUpload: failed to fetch existing rows', existingError);
@@ -74,12 +72,13 @@ async function autoAssignShipmentsFromUpload(params: {
   const ownerByShipmentRef = new Map<string, string>();
   for (const row of existingRows ?? []) {
     const key = String(row.vessel_name_normalized);
-    if (existingByVessel.has(key)) continue;
     const refs = new Set(parseShipmentRefs(row.shipment_reference));
-    existingByVessel.set(key, {
-      id: String(row.id),
-      refs,
-    });
+    if (assignmentByVessel.has(key) && !existingByVessel.has(key)) {
+      existingByVessel.set(key, {
+        id: String(row.id),
+        refs,
+      });
+    }
     for (const ref of refs) {
       ownerByShipmentRef.set(ref, key);
     }
