@@ -3,6 +3,36 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { normalizeVesselName } from '@/lib/normalize';
 
+
+function parseShipmentRefs(input: string | null | undefined): string[] {
+  return String(input ?? '')
+    .split(/[;,\n]/)
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+async function isShipmentRefAlreadyAssigned(
+  supabase: ReturnType<typeof createRouteHandlerClient>,
+  userId: string,
+  shipmentRef: string,
+  allowedVesselNormalized?: string
+): Promise<boolean> {
+  const { data } = await supabase
+    .from('vessel_watches')
+    .select('vessel_name_normalized, shipment_reference')
+    .eq('user_id', userId);
+
+  for (const row of data ?? []) {
+    if (allowedVesselNormalized && row.vessel_name_normalized === allowedVesselNormalized) continue;
+    const refs = parseShipmentRefs(row.shipment_reference);
+    if (refs.includes(shipmentRef)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+
 /** GET /api/watchlist — list user's watched vessels */
 export async function GET() {
   const supabase = createRouteHandlerClient({ cookies });
@@ -64,6 +94,21 @@ export async function POST(request: NextRequest) {
 
   const currentEta = schedule?.eta ?? null;
 
+  if (shipmentReference) {
+    const alreadyAssigned = await isShipmentRefAlreadyAssigned(
+      supabase,
+      session.user.id,
+      shipmentReference,
+      normalized
+    );
+    if (alreadyAssigned) {
+      return NextResponse.json(
+        { error: 'Diese S-Nr. ist bereits einem anderen Schiff zugeordnet.' },
+        { status: 409 }
+      );
+    }
+  }
+
   const { data, error } = await supabase.from('vessel_watches').insert({
     user_id: session.user.id,
     vessel_name: vesselName,
@@ -74,10 +119,63 @@ export async function POST(request: NextRequest) {
 
   if (error) {
     if (error.code === '23505') {
-      return NextResponse.json(
-        { error: 'This vessel is already on your watchlist' },
-        { status: 409 }
-      );
+      const { data: existing, error: existingErr } = await supabase
+        .from('vessel_watches')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .eq('vessel_name_normalized', normalized)
+        .maybeSingle();
+
+      if (existingErr) {
+        console.error('Failed to fetch existing watch after conflict:', existingErr);
+        return NextResponse.json({ error: existingErr.message }, { status: 500 });
+      }
+
+      if (!existing) {
+        return NextResponse.json(
+          { error: 'This vessel is already on your watchlist' },
+          { status: 409 }
+        );
+      }
+
+      if (shipmentReference) {
+        const alreadyAssigned = await isShipmentRefAlreadyAssigned(
+          supabase,
+          session.user.id,
+          shipmentReference,
+          normalized
+        );
+        if (alreadyAssigned) {
+          return NextResponse.json(
+            { error: 'Diese S-Nr. ist bereits einem anderen Schiff zugeordnet.' },
+            { status: 409 }
+          );
+        }
+
+        const merged = Array.from(
+          new Set(
+            parseShipmentRefs(existing.shipment_reference).concat(shipmentReference)
+          )
+        ).join(', ');
+
+        if (merged !== (existing.shipment_reference || '')) {
+          const { data: updated, error: updateErr } = await supabase
+            .from('vessel_watches')
+            .update({ shipment_reference: merged })
+            .eq('id', existing.id)
+            .select()
+            .single();
+
+          if (updateErr) {
+            console.error('Failed to update shipment reference on existing watch:', updateErr);
+            return NextResponse.json({ error: updateErr.message }, { status: 500 });
+          }
+
+          return NextResponse.json({ watch: updated, updatedExisting: true }, { status: 200 });
+        }
+      }
+
+      return NextResponse.json({ watch: existing, updatedExisting: false }, { status: 200 });
     }
     console.error('Failed to add watch:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });

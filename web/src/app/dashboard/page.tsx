@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import type { CSSProperties } from 'react';
+import AutoRefresh from '@/components/AutoRefresh';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -30,7 +31,6 @@ export default async function DashboardPage() {
     redirect('/login');
   }
 
-  // Use service-role client to bypass RLS for the role check
   const adminClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -45,8 +45,7 @@ export default async function DashboardPage() {
 
   const isAdmin = (roleData as { role: string } | null)?.role === 'admin';
 
-  // Get user's upload history
-  const { data: userUploads, error: uploadsError } = await supabase
+  const { data: userUploads, error: uploadsError } = await adminClient
     .from('upload_logs')
     .select('*')
     .eq('user_id', session.user.id)
@@ -59,7 +58,6 @@ export default async function DashboardPage() {
 
   const uploads = (userUploads as UploadLog[] | null) ?? [];
 
-  // User stats
   const totalUploads = uploads.length;
   const totalMatched = uploads.reduce((s, l) => s + l.matched_count, 0);
   const totalUnmatched = uploads.reduce((s, l) => s + l.unmatched_count, 0);
@@ -67,7 +65,6 @@ export default async function DashboardPage() {
   const successRate =
     totalRows > 0 ? Math.round((totalMatched / totalRows) * 100) : 0;
 
-  // Unique shipment numbers
   const allShipmentNumbers = new Set<string>();
   for (const log of uploads) {
     if (log.shipment_numbers) {
@@ -77,7 +74,6 @@ export default async function DashboardPage() {
     }
   }
 
-  // Admin stats
   let adminStats: {
     totalUsers: number;
     totalUploads: number;
@@ -88,7 +84,7 @@ export default async function DashboardPage() {
   if (isAdmin) {
     const [usersRes, uploadsRes, vesselsRes] = await Promise.all([
       supabase.from('user_roles').select('user_id'),
-      supabase
+      adminClient
         .from('upload_logs')
         .select('processing_time_ms')
         .order('created_at', { ascending: false }),
@@ -114,9 +110,9 @@ export default async function DashboardPage() {
 
   return (
     <div style={styles.container}>
+      <AutoRefresh intervalMs={15000} />
       <h1 style={styles.pageTitle}>Dashboard</h1>
 
-      {/* User Stats */}
       <div style={styles.grid3}>
         <div style={styles.statCard}>
           <div style={styles.statLabel}>Meine Uploads</div>
@@ -124,7 +120,7 @@ export default async function DashboardPage() {
         </div>
         <div style={styles.statCard}>
           <div style={styles.statLabel}>Erfolgsrate</div>
-          <div style={{ ...styles.statValue, color: '#0066cc' }}>
+          <div style={{ ...styles.statValue, color: '#0ea5e9' }}>
             {successRate}%
           </div>
         </div>
@@ -134,7 +130,6 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Admin Stats */}
       {isAdmin && adminStats && (
         <>
           <h2 style={styles.sectionTitle}>System (Admin)</h2>
@@ -159,7 +154,6 @@ export default async function DashboardPage() {
         </>
       )}
 
-      {/* Upload History */}
       <h2 style={styles.sectionTitle}>Letzte Uploads</h2>
       <div style={styles.tableWrap}>
         <table style={styles.table}>
@@ -184,13 +178,9 @@ export default async function DashboardPage() {
                   <td style={{ ...styles.td, color: '#b91c1c', fontWeight: 600 }}>
                     {log.unmatched_count}
                   </td>
-                  <td style={styles.td}>
-                    {log.shipment_numbers?.length ?? 0}
-                  </td>
-                  <td style={{ ...styles.td, color: '#666', fontSize: '13px' }}>
-                    {log.processing_time_ms ?? '-'}ms
-                  </td>
-                  <td style={{ ...styles.td, color: '#666', fontSize: '13px' }}>
+                  <td style={styles.td}>{log.shipment_numbers?.length ?? 0}</td>
+                  <td style={styles.tdMuted}>{log.processing_time_ms ?? '-'}ms</td>
+                  <td style={styles.tdMuted}>
                     {new Date(log.created_at).toLocaleString('de-DE', {
                       timeZone: 'Europe/Berlin',
                     })}
@@ -205,13 +195,13 @@ export default async function DashboardPage() {
                     ...styles.td,
                     textAlign: 'center',
                     padding: '32px',
-                    color: '#888',
+                    color: 'var(--text-secondary)',
                   }}
                 >
                   Noch keine Uploads.{' '}
                   <a
                     href="/eta-updater"
-                    style={{ color: '#0066cc', textDecoration: 'none' }}
+                    style={{ color: '#0ea5e9', textDecoration: 'none' }}
                   >
                     Jetzt starten
                   </a>
@@ -220,18 +210,6 @@ export default async function DashboardPage() {
             )}
           </tbody>
         </table>
-      </div>
-
-      {/* Quick Actions */}
-      <div style={{ marginTop: '32px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-        <a href="/eta-updater" style={styles.btnPrimary}>
-          Excel hochladen
-        </a>
-        {isAdmin && (
-          <a href="/admin/users" style={styles.btnSecondary}>
-            Benutzerverwaltung
-          </a>
-        )}
       </div>
     </div>
   );
@@ -264,20 +242,20 @@ const styles: Record<string, CSSProperties> = {
     gap: '12px',
   },
   statCard: {
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
+    border: '1px solid var(--border)',
     padding: '24px',
     borderRadius: '12px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
   adminCard: {
-    backgroundColor: '#f0f7ff',
-    border: '1px solid #dbeafe',
+    backgroundColor: 'var(--surface-muted)',
+    border: '1px solid var(--border)',
     padding: '20px',
     borderRadius: '10px',
   },
   statLabel: {
     fontSize: '13px',
-    color: '#666',
+    color: 'var(--text-secondary)',
     marginBottom: '6px',
   },
   statValue: {
@@ -285,9 +263,9 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 700,
   },
   tableWrap: {
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
+    border: '1px solid var(--border)',
     borderRadius: '12px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
     overflow: 'auto',
   },
   table: {
@@ -299,34 +277,19 @@ const styles: Record<string, CSSProperties> = {
     textAlign: 'left',
     fontWeight: 600,
     fontSize: '13px',
-    color: '#666',
-    borderBottom: '1px solid #e5e7eb',
+    color: 'var(--text-secondary)',
+    borderBottom: '1px solid var(--border)',
     whiteSpace: 'nowrap',
   },
   td: {
     padding: '12px 16px',
-    borderBottom: '1px solid #f3f4f6',
+    borderBottom: '1px solid var(--border)',
     fontSize: '14px',
   },
-  btnPrimary: {
-    display: 'inline-block',
-    padding: '12px 24px',
-    backgroundColor: '#0066cc',
-    color: '#fff',
-    borderRadius: '8px',
-    textDecoration: 'none',
-    fontWeight: 600,
-    fontSize: '14px',
-  },
-  btnSecondary: {
-    display: 'inline-block',
-    padding: '12px 24px',
-    backgroundColor: '#f3f4f6',
-    color: '#333',
-    border: '1px solid #d1d5db',
-    borderRadius: '8px',
-    textDecoration: 'none',
-    fontWeight: 500,
-    fontSize: '14px',
+  tdMuted: {
+    padding: '12px 16px',
+    borderBottom: '1px solid var(--border)',
+    fontSize: '13px',
+    color: 'var(--text-secondary)',
   },
 };

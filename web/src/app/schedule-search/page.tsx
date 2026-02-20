@@ -14,9 +14,11 @@ type SearchParams = {
   pageSize?: string;
   sort?: string;
   etaWindow?: string;
+  snr?: string;
 };
 
 type ScheduleEventRowRaw = {
+  vessel_id: string;
   source: string;
   eta: string | null;
   etd: string | null;
@@ -32,6 +34,14 @@ function formatDateTime(value: string | null): string {
   return new Date(value).toLocaleString('de-DE', {
     timeZone: 'Europe/Berlin',
   });
+}
+
+function toDayDiff(newEta: string | null, oldEta: string | null): number | null {
+  if (!newEta || !oldEta) return null;
+  const newTs = Date.parse(newEta);
+  const oldTs = Date.parse(oldEta);
+  if (Number.isNaN(newTs) || Number.isNaN(oldTs)) return null;
+  return Math.round((newTs - oldTs) / 86_400_000);
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
@@ -92,8 +102,8 @@ function applySort(query: any, sort: string) {
   return query.order('scraped_at', { ascending: false });
 }
 
-function toRows(rows: ScheduleEventRowRaw[]): SearchRow[] {
-  return rows.map((row) => {
+function toRows(rows: ScheduleEventRowRaw[], previousEtaByKey: Map<string, string | null>): SearchRow[] {
+  const mapped = rows.map((row) => {
     const vesselData = row.vessels;
     const vesselName = Array.isArray(vesselData)
       ? (vesselData[0]?.name ?? '-')
@@ -107,8 +117,21 @@ function toRows(rows: ScheduleEventRowRaw[]): SearchRow[] {
       etd: row.etd,
       terminal: row.terminal,
       scraped_at: row.scraped_at,
+      previous_eta: previousEtaByKey.get(`${row.vessel_id}|${row.source}`) ?? null,
+      eta_change_days: toDayDiff(row.eta, previousEtaByKey.get(`${row.vessel_id}|${row.source}`) ?? null),
     };
   });
+
+  // keep latest entry per vessel/source to avoid duplicate history rows across terminals
+  const seen = new Set<string>();
+  const deduped: SearchRow[] = [];
+  for (const row of mapped) {
+    const key = `${row.vessel_name_normalized}|${row.source}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(row);
+  }
+  return deduped;
 }
 
 function withParams(base: Record<string, string>, patch: Record<string, string | undefined>) {
@@ -139,6 +162,7 @@ export default async function ScheduleSearchPage({
   const source = (searchParams.source ?? 'all').trim().toLowerCase();
   const sort = (searchParams.sort ?? 'scraped_desc').trim().toLowerCase();
   const etaWindow = (searchParams.etaWindow ?? 'all').trim().toLowerCase();
+  const snr = (searchParams.snr ?? '').trim();
   const page = parsePositiveInt(searchParams.page, 1);
   const requestedPageSize = parsePositiveInt(searchParams.pageSize, 25);
   const pageSize = PAGE_SIZE_OPTIONS.includes(requestedPageSize as (typeof PAGE_SIZE_OPTIONS)[number])
@@ -153,7 +177,7 @@ export default async function ScheduleSearchPage({
 
   const baseQuery = admin
     .from('schedule_events')
-    .select('source, eta, etd, terminal, scraped_at, vessels!inner(name)', { count: 'exact' });
+    .select('vessel_id, source, eta, etd, terminal, scraped_at, vessels!inner(name)', { count: 'exact' });
 
   const filtered = applyFilters(baseQuery, { q, source, etaWindow });
   const sorted = applySort(filtered, sort);
@@ -171,7 +195,7 @@ export default async function ScheduleSearchPage({
       .maybeSingle(),
     supabase
       .from('vessel_watches')
-      .select('vessel_name_normalized')
+      .select('vessel_name_normalized, shipment_reference')
       .eq('user_id', session.user.id),
   ]);
 
@@ -184,7 +208,32 @@ export default async function ScheduleSearchPage({
     );
   }
 
-  const rows = toRows((pageRes.data ?? []) as ScheduleEventRowRaw[]);
+  const pageRowsRaw = (pageRes.data ?? []) as ScheduleEventRowRaw[];
+  const pageVesselIds = Array.from(new Set(pageRowsRaw.map((r) => r.vessel_id).filter(Boolean)));
+
+  let previousEtaByKey = new Map<string, string | null>();
+  if (pageVesselIds.length > 0) {
+    const { data: recentRows } = await admin
+      .from('schedule_events')
+      .select('vessel_id, source, eta, scraped_at')
+      .in('vessel_id', pageVesselIds)
+      .order('scraped_at', { ascending: false })
+      .limit(6000);
+
+    const latestByKey = new Map<string, string | null>();
+    for (const row of recentRows ?? []) {
+      const key = `${row.vessel_id}|${row.source}`;
+      if (!latestByKey.has(key)) {
+        latestByKey.set(key, row.eta);
+        continue;
+      }
+      if (!previousEtaByKey.has(key)) {
+        previousEtaByKey.set(key, row.eta);
+      }
+    }
+  }
+
+  const rows = toRows(pageRowsRaw, previousEtaByKey);
   const totalFilteredCount = pageRes.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalFilteredCount / pageSize));
 
@@ -193,10 +242,33 @@ export default async function ScheduleSearchPage({
   if (source !== 'all') baseParams.source = source;
   if (sort !== 'scraped_desc') baseParams.sort = sort;
   if (etaWindow !== 'all') baseParams.etaWindow = etaWindow;
+  if (snr) baseParams.snr = snr;
   if (pageSize !== 25) baseParams.pageSize = String(pageSize);
 
   const exportHref = withParams(baseParams, {});
-  const watched = (watchedRes.data ?? []).map((r) => r.vessel_name_normalized);
+  const watchedRows = (watchedRes.data ?? []) as Array<{
+    vessel_name_normalized: string;
+    shipment_reference: string | null;
+  }>;
+
+  const watched = watchedRows.map((r) => r.vessel_name_normalized);
+  const shipmentByVessel = watchedRows.reduce<Record<string, string[]>>((acc, row) => {
+    if (!row.shipment_reference) return acc;
+    const values = row.shipment_reference
+     .split(/[;,\n]/)
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+    if (values.length === 0) return acc;
+    const existing = acc[row.vessel_name_normalized] ?? [];
+    for (const value of values) {
+      if (!existing.includes(value)) {
+        existing.push(value);
+      }
+    }
+    acc[row.vessel_name_normalized] = existing;
+    return acc;
+  }, {});
   const lastRun = lastRunRes.data;
   const lastRunText = lastRun
     ? `${formatDateTime(lastRun.started_at)} (${lastRun.status})`
@@ -206,7 +278,7 @@ export default async function ScheduleSearchPage({
     <div style={styles.container}>
       <h1 style={styles.pageTitle}>Datenbank Suche</h1>
       <p style={styles.subtitle}>
-        Volltextsuche ueber alle gespeicherten Datensaetze mit Export und Watchlist-Quick-Add.
+        Volltextsuche über alle gespeicherten Datensätze mit Export und Watchlist-Quick-Add.
       </p>
 
       <div style={styles.statsGrid}>
@@ -230,6 +302,7 @@ export default async function ScheduleSearchPage({
 
       <form method="GET" style={styles.filters}>
         <input type="text" name="q" defaultValue={q} placeholder="Vessel suchen (z.B. NORDICA)" style={styles.input} />
+        <input type="text" name="snr" defaultValue={snr} placeholder="S-Nr. suchen (z.B. S00226629)" style={styles.input} />
         <select name="source" defaultValue={source} style={styles.select}>
           <option value="all">Alle Quellen</option>
           <option value="eurogate">Eurogate</option>
@@ -265,13 +338,18 @@ export default async function ScheduleSearchPage({
       </form>
 
       <div style={styles.quickWrap}>
-        <a href={withParams(baseParams, { etaWindow: '7d', page: '1' })} style={styles.quickChip}>Naechste 7 Tage</a>
+        <a href={withParams(baseParams, { etaWindow: '7d', page: '1' })} style={styles.quickChip}>Nächste 7 Tage</a>
         <a href={withParams(baseParams, { etaWindow: 'unknown', page: '1' })} style={styles.quickChip}>Ohne ETA</a>
         <a href={withParams(baseParams, { source: 'eurogate', page: '1' })} style={styles.quickChip}>Nur Eurogate</a>
         <a href={withParams(baseParams, { source: 'hhla', page: '1' })} style={styles.quickChip}>Nur HHLA</a>
       </div>
 
-      <ScheduleSearchTable rows={rows} initiallyWatched={watched} />
+      <ScheduleSearchTable
+        rows={rows}
+        initiallyWatched={watched}
+        initialShipmentByVessel={shipmentByVessel}
+        initialSnrFilter={snr}
+      />
 
       <div style={styles.pager}>
         <span style={styles.pagerText}>
@@ -280,10 +358,10 @@ export default async function ScheduleSearchPage({
         <div style={{ display: 'flex', gap: '8px' }}>
           {page > 1 ? (
             <a href={withParams(baseParams, { page: String(page - 1) })} style={styles.btnGhost}>
-              Zurueck
+              Zurück
             </a>
           ) : (
-            <span style={styles.btnDisabled}>Zurueck</span>
+            <span style={styles.btnDisabled}>Zurück</span>
           )}
           {page < totalPages ? (
             <a href={withParams(baseParams, { page: String(page + 1) })} style={styles.btnPrimary}>
@@ -311,7 +389,7 @@ const styles: Record<string, CSSProperties> = {
   },
   subtitle: {
     margin: '0 0 20px',
-    color: '#666',
+    color: 'var(--text-secondary)',
     fontSize: '14px',
   },
   statsGrid: {
@@ -321,14 +399,14 @@ const styles: Record<string, CSSProperties> = {
     marginBottom: '18px',
   },
   statCard: {
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
     borderRadius: '10px',
     padding: '16px',
-    border: '1px solid #e5e7eb',
+    border: '1px solid var(--border)',
   },
   statLabel: {
     fontSize: '12px',
-    color: '#666',
+    color: 'var(--text-secondary)',
     marginBottom: '6px',
   },
   statValue: {
@@ -353,9 +431,9 @@ const styles: Record<string, CSSProperties> = {
   },
   quickChip: {
     fontSize: '12px',
-    border: '1px solid #cbd5e1',
-    color: '#334155',
-    backgroundColor: '#f8fafc',
+    border: '1px solid var(--border-strong)',
+    color: 'var(--text-primary)',
+    backgroundColor: 'var(--surface-muted)',
     borderRadius: '999px',
     padding: '6px 10px',
     textDecoration: 'none',
@@ -365,16 +443,16 @@ const styles: Record<string, CSSProperties> = {
     minWidth: '240px',
     padding: '10px 12px',
     borderRadius: '8px',
-    border: '1px solid #d1d5db',
+    border: '1px solid var(--border)',
     fontSize: '14px',
   },
   select: {
     minWidth: '170px',
     padding: '10px 12px',
     borderRadius: '8px',
-    border: '1px solid #d1d5db',
+    border: '1px solid var(--border)',
     fontSize: '14px',
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
   },
   btnPrimary: {
     padding: '10px 14px',
@@ -391,9 +469,9 @@ const styles: Record<string, CSSProperties> = {
   },
   btnGhost: {
     padding: '10px 14px',
-    backgroundColor: '#fff',
-    color: '#334155',
-    border: '1px solid #cbd5e1',
+    backgroundColor: 'var(--surface)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--border-strong)',
     borderRadius: '8px',
     fontWeight: 600,
     textDecoration: 'none',

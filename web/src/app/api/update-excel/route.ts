@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile } from 'fs/promises';
 import crypto from 'crypto';
 import { detectColumns, processExcel, ColumnMapping } from '@/lib/excel';
+import { normalizeVesselName } from '@/lib/normalize';
 import { getClientIp, extractShipmentNumbers } from '@/lib/security';
 import { cleanupExpiredTmpFiles, getTmpFilePath, TMP_TTL_MIN } from '@/lib/tmpFiles';
 import { revalidatePath } from 'next/cache';
@@ -10,6 +11,155 @@ import { cookies } from 'next/headers';
 import * as XLSX from 'xlsx';
 
 const MAX_FILE_MB = parseInt(process.env.MAX_FILE_MB || '10', 10);
+
+
+function parseShipmentRefs(input: string | null | undefined): string[] {
+  return String(input ?? '')
+    .split(/[;,\n]/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+async function autoAssignShipmentsFromUpload(params: {
+  userId: string;
+  fileBuffer: Buffer;
+  vesselCol: string;
+  shipmentCol: string;
+}): Promise<{ updatedCount: number; skippedConflicts: number }> {
+  const workbook = XLSX.read(params.fileBuffer, { type: 'buffer' });
+  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+
+  const assignmentByVessel = new Map<string, { vesselName: string; refs: Set<string> }>();
+  for (const row of rows) {
+    const vesselRaw = String(row[params.vesselCol] ?? '').trim();
+    if (!vesselRaw) continue;
+
+    const refs = extractShipmentNumbers(String(row[params.shipmentCol] ?? ''));
+    if (refs.length === 0) continue;
+
+    const normalized = normalizeVesselName(vesselRaw);
+    const existing = assignmentByVessel.get(normalized) ?? {
+      vesselName: vesselRaw,
+      refs: new Set<string>(),
+    };
+
+    for (const ref of refs) {
+      existing.refs.add(ref);
+    }
+
+    assignmentByVessel.set(normalized, existing);
+  }
+
+  if (assignmentByVessel.size === 0) {
+    return { updatedCount: 0, skippedConflicts: 0 };
+  }
+
+  const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
+  const admin = getSupabaseAdmin();
+
+  const normalizedNames = Array.from(assignmentByVessel.keys());
+  const { data: existingRows, error: existingError } = await admin
+    .from('vessel_watches')
+    .select('id, vessel_name_normalized, shipment_reference')
+    .eq('user_id', params.userId)
+    .in('vessel_name_normalized', normalizedNames);
+
+  if (existingError) {
+    console.error('autoAssignShipmentsFromUpload: failed to fetch existing rows', existingError);
+    return { updatedCount: 0, skippedConflicts: 0 };
+  }
+
+  const existingByVessel = new Map<string, { id: string; refs: Set<string> }>();
+  const ownerByShipmentRef = new Map<string, string>();
+  for (const row of existingRows ?? []) {
+    const key = String(row.vessel_name_normalized);
+    if (existingByVessel.has(key)) continue;
+    const refs = new Set(parseShipmentRefs(row.shipment_reference));
+    existingByVessel.set(key, {
+      id: String(row.id),
+      refs,
+    });
+    for (const ref of refs) {
+      ownerByShipmentRef.set(ref, key);
+    }
+  }
+
+  let updatedCount = 0;
+  let skippedConflicts = 0;
+
+  const fileOwnerByRef = new Map<string, string>();
+  for (const [normalized, payload] of assignmentByVessel.entries()) {
+    for (const ref of payload.refs) {
+      const prev = fileOwnerByRef.get(ref);
+      if (prev && prev !== normalized) {
+        payload.refs.delete(ref);
+        skippedConflicts += 1;
+      } else {
+        fileOwnerByRef.set(ref, normalized);
+      }
+    }
+  }
+  const inserts: Array<{
+    user_id: string;
+    vessel_name: string;
+    vessel_name_normalized: string;
+    shipment_reference: string;
+    notification_enabled: boolean;
+  }> = [];
+
+  for (const [normalized, payload] of assignmentByVessel.entries()) {
+    const refs = Array.from(payload.refs).filter((ref) => {
+      const owner = ownerByShipmentRef.get(ref);
+      if (!owner || owner === normalized) return true;
+      skippedConflicts += 1;
+      return false;
+    });
+    if (refs.length === 0) continue;
+
+    const existing = existingByVessel.get(normalized);
+
+    if (!existing) {
+      inserts.push({
+        user_id: params.userId,
+        vessel_name: payload.vesselName,
+        vessel_name_normalized: normalized,
+        shipment_reference: refs.join(', '),
+        notification_enabled: false,
+      });
+      continue;
+    }
+
+    const merged = new Set(existing.refs);
+    for (const ref of refs) merged.add(ref);
+    if (merged.size === existing.refs.size) continue;
+
+    const { error: updateError } = await admin
+      .from('vessel_watches')
+      .update({ shipment_reference: Array.from(merged).join(', ') })
+      .eq('id', existing.id);
+
+    if (!updateError) {
+      updatedCount += 1;
+    } else {
+      console.error('autoAssignShipmentsFromUpload: failed to update watch', updateError);
+    }
+  }
+
+  if (inserts.length > 0) {
+    const { error: insertError } = await admin
+      .from('vessel_watches')
+      .insert(inserts);
+
+    if (insertError) {
+      console.error('autoAssignShipmentsFromUpload: failed to insert watches', insertError);
+    } else {
+      updatedCount += inserts.length;
+    }
+  }
+
+  return { updatedCount, skippedConflicts };
+}
 
 async function logUpload(params: {
   userId: string;
@@ -214,7 +364,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     } catch (logErr) {
       console.error('logUpload failed:', logErr);
     }
+    let autoAssignedCount = 0;
+    let autoAssignSkippedConflicts = 0;
+    if (shipmentCol) {
+      const assignResult = await autoAssignShipmentsFromUpload({
+        userId: session.user.id,
+        fileBuffer,
+        vesselCol,
+        shipmentCol,
+      });
+      autoAssignedCount = assignResult.updatedCount;
+      autoAssignSkippedConflicts = assignResult.skippedConflicts;
+    }
+
     revalidatePath('/dashboard');
+    revalidatePath('/schedule-search');
+    revalidatePath('/watchlist');
 
     return NextResponse.json({
       jobId,
@@ -227,6 +392,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         unmatchedNames: result.unmatchedNames,
         unmatchedRows: result.unmatchedRows,
         etaChanges: result.etaChanges,
+        autoAssignedShipments: autoAssignedCount,
+        autoAssignSkippedConflicts,
       },
       file_ttl_minutes: TMP_TTL_MIN,
     });

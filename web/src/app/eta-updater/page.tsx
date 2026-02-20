@@ -29,6 +29,8 @@ interface UpdateSummary {
     oldEta: string | null;
     newEta: string | null;
   }>;
+  autoAssignedShipments?: number;
+  autoAssignSkippedConflicts?: number;
 }
 
 type Step = 'upload' | 'columns' | 'processing' | 'result';
@@ -48,29 +50,68 @@ export default function EtaUpdaterPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
-  const groupedUnmatched = (() => {
+  const unmatchedVessels = (() => {
     if (!summary) return [];
-    const validRows = summary.unmatchedRows.filter((row) => {
-      const vessel = (row.vesselName || '').trim();
-      const snr = (row.shipmentRef || '').trim();
-      return vessel && vessel !== '(empty)' && (snr || row.eta);
-    });
+    return Array.from(
+      new Set(
+        summary.unmatchedNames
+          .map((name) => name.trim())
+          .filter((name) => name && name !== '(empty)')
+      )
+    );
+  })();
 
-    const map = new Map<
+  const groupedEtaChanges = (() => {
+    if (!summary) return [];
+
+    const parseGermanDate = (value: string | null): number | null => {
+      if (!value) return null;
+      const m = value.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+      if (!m) return null;
+      const [, dd, mm, yyyy] = m;
+      return new Date(Number(yyyy), Number(mm) - 1, Number(dd)).getTime();
+    };
+
+    const byVessel = new Map<
       string,
-      Array<{ shipmentRef: string | null; eta: string | null }>
+      {
+        oldEta: string | null;
+        newEta: string | null;
+        dayDiff: number | null;
+        shipmentRefs: string[];
+      }
     >();
 
-    for (const row of validRows) {
-      const vessel = row.vesselName.trim();
-      const existing = map.get(vessel) ?? [];
-      existing.push({ shipmentRef: row.shipmentRef, eta: row.eta });
-      map.set(vessel, existing);
+    for (const change of summary.etaChanges) {
+      const vessel = change.vesselName.trim() || 'Unbekanntes Schiff';
+      const existing = byVessel.get(vessel);
+      const shipmentRef = (change.shipmentRef || '').trim();
+
+      const oldTs = parseGermanDate(change.oldEta);
+      const newTs = parseGermanDate(change.newEta);
+      const dayDiff =
+        oldTs != null && newTs != null
+          ? Math.round((newTs - oldTs) / 86_400_000)
+          : null;
+
+      if (!existing) {
+        byVessel.set(vessel, {
+          oldEta: change.oldEta,
+          newEta: change.newEta,
+          dayDiff,
+          shipmentRefs: shipmentRef ? [shipmentRef] : [],
+        });
+        continue;
+      }
+
+      if (shipmentRef && !existing.shipmentRefs.includes(shipmentRef)) {
+        existing.shipmentRefs.push(shipmentRef);
+      }
     }
 
-    return Array.from(map.entries()).map(([vesselName, rows]) => ({
+    return Array.from(byVessel.entries()).map(([vesselName, data]) => ({
       vesselName,
-      rows,
+      ...data,
     }));
   })();
 
@@ -263,14 +304,14 @@ export default function EtaUpdaterPage() {
                 : 'Excel-Datei hier ablegen'}
             </p>
             <p style={{ margin: 0, fontSize: '14px', color: '#888' }}>
-              oder klicken zum Auswaehlen (.xlsx / .xls, max 10 MB)
+              oder klicken zum Auswählen (.xlsx / .xls, max 10 MB)
             </p>
           </div>
         )}
 
         {step === 'columns' && detected && (
           <div style={styles.section}>
-            <p style={{ margin: '0 0 4px', fontSize: '14px', color: '#666' }}>
+            <p style={{ margin: '0 0 4px', fontSize: '14px', color: 'var(--text-secondary)' }}>
               Datei: <strong>{file?.name}</strong>
             </p>
             <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#888' }}>
@@ -302,7 +343,7 @@ export default function EtaUpdaterPage() {
                 value={vesselCol}
                 onChange={(e) => setVesselCol(e.target.value)}
               >
-                <option value="">-- Spalte waehlen --</option>
+                <option value="">-- Spalte wählen --</option>
                 {detected.allColumns.map((col) => (
                   <option key={col} value={col}>
                     {col}
@@ -320,7 +361,7 @@ export default function EtaUpdaterPage() {
                 value={etaCol}
                 onChange={(e) => setEtaCol(e.target.value)}
               >
-                <option value="">-- Spalte waehlen --</option>
+                <option value="">-- Spalte wählen --</option>
                 {detected.allColumns.map((col) => (
                   <option key={col} value={col}>
                     {col}
@@ -344,14 +385,14 @@ export default function EtaUpdaterPage() {
                 ))}
               </select>
               <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#777' }}>
-                Wenn die Zelle in dieser Spalte gefuellt ist, wird die Zeile
-                als uebersprungen markiert.
+                Wenn die Zelle in dieser Spalte gefüllt ist, wird die Zeile
+                als übersprungen markiert.
               </p>
             </div>
 
             <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
               <button style={styles.btnSecondary} onClick={reset}>
-                Zurueck
+                Zurück
               </button>
               <button
                 style={{
@@ -370,7 +411,7 @@ export default function EtaUpdaterPage() {
         {step === 'processing' && (
           <div style={{ textAlign: 'center' as const, padding: '48px 0' }}>
             <div style={styles.spinner} />
-            <p style={{ marginTop: '16px', color: '#666' }}>
+            <p style={{ marginTop: '16px', color: 'var(--text-secondary)' }}>
               ETAs werden abgeglichen...
             </p>
           </div>
@@ -380,119 +421,76 @@ export default function EtaUpdaterPage() {
           <div style={styles.section}>
             <h2 style={{ margin: '0 0 16px', fontSize: '18px' }}>Ergebnis</h2>
 
-            <div style={styles.statsGrid}>
-              <div style={styles.statCard}>
-                <div style={{ fontSize: '28px', fontWeight: 700 }}>
-                  {summary.totalRows}
-                </div>
-                <div style={{ fontSize: '13px', color: '#666' }}>
-                  Zeilen gesamt
-                </div>
-              </div>
-              <div style={{ ...styles.statCard, borderColor: '#22c55e' }}>
-                <div
-                  style={{
-                    fontSize: '28px',
-                    fontWeight: 700,
-                    color: '#22c55e',
-                  }}
-                >
-                  {summary.matched}
-                </div>
-                <div style={{ fontSize: '13px', color: '#666' }}>
-                  Matched
-                </div>
-              </div>
-              <div
-                style={{
-                  ...styles.statCard,
-                  borderColor:
-                    summary.unmatched > 0 ? '#f59e0b' : '#22c55e',
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: '28px',
-                    fontWeight: 700,
-                    color: summary.unmatched > 0 ? '#f59e0b' : '#22c55e',
-                  }}
-                >
-                  {summary.unmatched}
-                </div>
-                <div style={{ fontSize: '13px', color: '#666' }}>
-                  Unmatched
-                </div>
-              </div>
-              {summary.skippedOld > 0 && (
-                <div style={{ ...styles.statCard, borderColor: '#94a3b8' }}>
-                  <div
-                    style={{
-                      fontSize: '28px',
-                      fontWeight: 700,
-                      color: '#94a3b8',
-                    }}
-                  >
-                    {summary.skippedOld}
-                  </div>
-                  <div style={{ fontSize: '13px', color: '#666' }}>
-                    Uebersprungen (alt)
-                  </div>
-                </div>
-              )}
-              {summary.skippedCustoms > 0 && (
-                <div style={{ ...styles.statCard, borderColor: '#64748b' }}>
-                  <div
-                    style={{
-                      fontSize: '28px',
-                      fontWeight: 700,
-                      color: '#64748b',
-                    }}
-                  >
-                    {summary.skippedCustoms}
-                  </div>
-                  <div style={{ fontSize: '13px', color: '#666' }}>
-                    Uebersprungen (verzollt)
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {groupedUnmatched.length > 0 && (
+            {unmatchedVessels.length > 0 && (
               <div style={styles.unmatchedBox}>
                 <strong style={{ display: 'block', marginBottom: '8px' }}>
-                  Nicht gefundene Eintraege (max. 20):
-                </strong>
-                <div style={{ display: 'grid', gap: '8px' }}>
-                  {groupedUnmatched.map((group, i) => (
-                    <div key={`${group.vesselName}-${i}`} style={{ fontSize: '14px' }}>
-                      <div style={{ fontWeight: 600 }}>Schiff: {group.vesselName}</div>
-                      <ul style={{ margin: '4px 0 0', paddingLeft: '20px' }}>
-                        {group.rows.map((row, j) => (
-                          <li key={`${group.vesselName}-${j}`} style={{ marginBottom: '3px' }}>
-                            S-Nr: {row.shipmentRef || '-'} | ETA: {row.eta || '-'}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {summary.etaChanges.length > 0 && (
-              <div style={{ ...styles.unmatchedBox, marginTop: '12px' }}>
-                <strong style={{ display: 'block', marginBottom: '8px' }}>
-                  ETA-Aenderungen (max. 50):
+                  Nicht gefundene Schiffe ({unmatchedVessels.length}):
                 </strong>
                 <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                  {summary.etaChanges.map((chg, i) => (
-                    <li key={i} style={{ fontSize: '14px', marginBottom: '4px' }}>
-                      S-Nr: {chg.shipmentRef || '-'} | Schiff: {chg.vesselName} | {chg.oldEta || '-'} -&gt; {chg.newEta || '-'}
+                  {unmatchedVessels.map((name) => (
+                    <li key={name} style={{ marginBottom: '4px' }}>
+                      {name}
                     </li>
                   ))}
                 </ul>
               </div>
             )}
+
+            <h3 style={{ margin: '20px 0 10px', fontSize: '28px', fontWeight: 700 }}>
+              Sendungen - ETA Abgleich
+            </h3>
+
+            <p style={{ margin: '0 0 12px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+              Übersprungen (alt): {summary.skippedOld} · Übersprungen (verzollt):{' '}
+              {summary.skippedCustoms}
+              {typeof summary.autoAssignedShipments === 'number' ? (
+                <> · Auto-Zuordnungen S-Nr.: {summary.autoAssignedShipments}</>
+              ) : null}
+              {typeof summary.autoAssignSkippedConflicts === 'number' && summary.autoAssignSkippedConflicts > 0 ? (
+                <> · Konflikte (S-Nr. bereits bei anderem Schiff): {summary.autoAssignSkippedConflicts}</>
+              ) : null}
+            </p>
+
+            {groupedEtaChanges.length > 0 ? (
+              <div style={{ display: 'grid', gap: '12px' }}>
+                {groupedEtaChanges.map((group) => (
+                  <div key={group.vesselName} style={styles.matchCard}>
+                    <div style={{ fontWeight: 700, fontSize: '32px', lineHeight: 1.2 }}>
+                      {group.vesselName}
+                    </div>
+                    <div style={styles.statusBadge}>
+                      {group.oldEta && group.newEta ? (
+                        <>
+                          von {group.oldEta} auf {group.newEta}
+                          {group.dayDiff != null && (
+                            <>
+                              {' '}
+                              ({group.dayDiff >= 0 ? '+' : ''}
+                              {group.dayDiff} Tage)
+                            </>
+                          )}
+                        </>
+                      ) : (
+                        'Keine Änderung'
+                      )}
+                    </div>
+
+                    {group.shipmentRefs.length > 0 && (
+                      <ul style={styles.shipmentList}>
+                        {group.shipmentRefs.map((ref) => (
+                          <li key={`${group.vesselName}-${ref}`} style={styles.shipmentRow}>
+                            {ref}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={styles.emptyInfo}>Keine ETA-Änderungen gefunden.</div>
+            )}
+
 
             <div
               style={{
@@ -531,7 +529,7 @@ const styles: Record<string, CSSProperties> = {
     padding: '24px 16px',
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
     borderRadius: '12px',
     padding: '32px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)',
@@ -544,7 +542,7 @@ const styles: Record<string, CSSProperties> = {
   subtitle: {
     margin: '0 0 24px',
     fontSize: '15px',
-    color: '#666',
+    color: 'var(--text-secondary)',
   },
   steps: {
     display: 'flex',
@@ -552,7 +550,7 @@ const styles: Record<string, CSSProperties> = {
     gap: '32px',
     marginBottom: '28px',
     paddingBottom: '20px',
-    borderBottom: '1px solid #eee',
+    borderBottom: '1px solid var(--border)',
   },
   stepItem: {
     display: 'flex',
@@ -571,7 +569,7 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 600,
   },
   dropzone: {
-    border: '2px dashed #ccc',
+    border: '2px dashed var(--border-strong)',
     borderRadius: '12px',
     padding: '48px 24px',
     textAlign: 'center',
@@ -592,9 +590,9 @@ const styles: Record<string, CSSProperties> = {
     width: '100%',
     padding: '10px 12px',
     fontSize: '14px',
-    border: '1px solid #d1d5db',
+    border: '1px solid var(--border)',
     borderRadius: '8px',
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
     appearance: 'auto' as CSSProperties['appearance'],
   },
   btnPrimary: {
@@ -614,9 +612,9 @@ const styles: Record<string, CSSProperties> = {
     padding: '12px 24px',
     fontSize: '15px',
     fontWeight: 600,
-    color: '#333',
-    backgroundColor: '#f3f4f6',
-    border: '1px solid #d1d5db',
+    color: 'var(--text-primary)',
+    backgroundColor: 'var(--surface-muted)',
+    border: '1px solid var(--border)',
     borderRadius: '8px',
     cursor: 'pointer',
   },
@@ -629,23 +627,47 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '14px',
     border: '1px solid #fecaca',
   },
-  statsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-    gap: '12px',
-    marginBottom: '20px',
+  matchCard: {
+    border: '1px solid var(--border)',
+    borderRadius: '10px',
+    padding: '14px 16px',
+    backgroundColor: '#f9fafb',
   },
-  statCard: {
-    padding: '16px',
-    borderRadius: '8px',
-    border: '1px solid #e5e7eb',
-    textAlign: 'center',
+  statusBadge: {
+    display: 'inline-block',
+    marginTop: '8px',
+    marginBottom: '10px',
+    padding: '4px 8px',
+    borderRadius: '6px',
+    backgroundColor: '#dcfce7',
+    color: '#047857',
+    fontWeight: 600,
+    fontSize: '14px',
+  },
+  shipmentList: {
+    margin: 0,
+    padding: 0,
+    listStyle: 'none',
+  },
+  shipmentRow: {
+    borderTop: '1px solid #e5e7eb',
+    padding: '10px 2px 2px',
+    fontSize: '15px',
   },
   unmatchedBox: {
     padding: '16px',
     backgroundColor: '#fffbeb',
     border: '1px solid #fde68a',
     borderRadius: '8px',
+    fontSize: '14px',
+    marginBottom: '12px',
+  },
+  emptyInfo: {
+    padding: '14px',
+    borderRadius: '8px',
+    border: '1px solid var(--border)',
+    backgroundColor: '#f9fafb',
+    color: '#374151',
     fontSize: '14px',
   },
   spinner: {
