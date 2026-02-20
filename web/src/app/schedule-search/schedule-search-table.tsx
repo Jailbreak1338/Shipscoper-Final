@@ -19,40 +19,101 @@ function formatDateTime(value: string | null): string {
   });
 }
 
+type ShipmentMap = Record<string, string[]>;
+
 export default function ScheduleSearchTable({
   rows,
   initiallyWatched,
+  initialShipmentByVessel,
+  initialSnrFilter,
 }: {
   rows: SearchRow[];
   initiallyWatched: string[];
+  initialShipmentByVessel: ShipmentMap;
+  initialSnrFilter?: string;
 }) {
   const [watchedSet, setWatchedSet] = useState<Set<string>>(
     () => new Set(initiallyWatched)
   );
+  const [shipmentByVessel, setShipmentByVessel] =
+    useState<ShipmentMap>(initialShipmentByVessel);
   const [adding, setAdding] = useState<Record<string, boolean>>({});
   const [flash, setFlash] = useState('');
+  const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
+  const [shipmentInput, setShipmentInput] = useState<Record<string, string>>({});
+  const [shipmentSuggestions, setShipmentSuggestions] = useState<Record<string, string[]>>({});
+  const [snrFilter, setSnrFilter] = useState(initialSnrFilter ?? '');
 
   const uniqueVesselsOnPage = useMemo(() => {
     const names = new Set(rows.map((r) => r.vessel_name_normalized));
     return names.size;
   }, [rows]);
 
-  const addToWatchlist = async (row: SearchRow) => {
+  const filteredRows = useMemo(() => {
+    const q = snrFilter.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((row) => {
+      const vesselShipments = shipmentByVessel[row.vessel_name_normalized] ?? [];
+      return vesselShipments.some((snr) => snr.toLowerCase().includes(q));
+    });
+  }, [rows, shipmentByVessel, snrFilter]);
+
+  const fetchShipmentSuggestions = async (key: string, query: string) => {
+    if (query.trim().length < 2) {
+      setShipmentSuggestions((prev) => ({ ...prev, [key]: [] }));
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/shipment-numbers/search?q=${encodeURIComponent(query.trim())}`);
+      const body = await res.json();
+      if (res.ok) {
+        const values = Array.isArray(body.shipmentNumbers)
+          ? body.shipmentNumbers.map(String)
+          : [];
+        setShipmentSuggestions((prev) => ({ ...prev, [key]: values }));
+      }
+    } catch {
+      // ignore suggestion errors
+    }
+  };
+
+  const addToWatchlist = async (row: SearchRow, shipmentReference?: string) => {
     const normalized = row.vessel_name_normalized;
-    if (watchedSet.has(normalized)) return;
 
     setAdding((prev) => ({ ...prev, [normalized]: true }));
     try {
       const res = await fetch('/api/watchlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vesselName: row.vessel_name }),
+        body: JSON.stringify({
+          vesselName: row.vessel_name,
+          shipmentReference: shipmentReference?.trim() || null,
+        }),
       });
       const body = await res.json();
 
       if (res.ok || res.status === 409) {
         setWatchedSet((prev) => new Set(prev).add(normalized));
-        setFlash(res.status === 409 ? 'Bereits auf der Watchlist.' : `"${row.vessel_name}" wurde zur Watchlist hinzugefuegt.`);
+
+        const savedShipment =
+          typeof body?.watch?.shipment_reference === 'string'
+            ? body.watch.shipment_reference.trim()
+            : shipmentReference?.trim() || '';
+
+        if (savedShipment) {
+          setShipmentByVessel((prev) => {
+            const existing = prev[normalized] ?? [];
+            if (existing.includes(savedShipment)) return prev;
+            return { ...prev, [normalized]: [...existing, savedShipment] };
+          });
+        }
+
+        setFlash(
+          body?.updatedExisting
+            ? `Watchlist-Eintrag für "${row.vessel_name}" aktualisiert.`
+            : `"${row.vessel_name}" wurde zur Watchlist gespeichert.`
+        );
       } else {
         setFlash(body?.error || 'Konnte Watchlist-Eintrag nicht erstellen.');
       }
@@ -67,9 +128,18 @@ export default function ScheduleSearchTable({
     <div style={styles.wrap}>
       <div style={styles.headerRow}>
         <div style={styles.metaText}>
-          Zeilen auf dieser Seite: {rows.length} | Eindeutige Vessels: {uniqueVesselsOnPage}
+          Zeilen auf dieser Seite: {filteredRows.length} | Eindeutige Vessels: {uniqueVesselsOnPage}
         </div>
-        {flash && <div style={styles.flash}>{flash}</div>}
+        <div style={styles.filterRow}>
+          <input
+            type="text"
+            value={snrFilter}
+            onChange={(e) => setSnrFilter(e.target.value)}
+            placeholder="Suche nach S-Nr."
+            style={styles.input}
+          />
+          {flash && <div style={styles.flash}>{flash}</div>}
+        </div>
       </div>
 
       <div style={styles.tableWrap}>
@@ -82,20 +152,27 @@ export default function ScheduleSearchTable({
               <th style={styles.th}>ETD</th>
               <th style={styles.th}>Terminal</th>
               <th style={styles.th}>Scraped At</th>
+              <th style={styles.th}>S-Nr. (Watchlist)</th>
               <th style={styles.th}>Aktion</th>
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ ...styles.td, textAlign: 'center', color: '#777' }}>
+                <td colSpan={8} style={{ ...styles.td, textAlign: 'center', color: '#777' }}>
                   Keine Daten gefunden
                 </td>
               </tr>
             ) : (
-              rows.map((row, i) => {
-                const isWatched = watchedSet.has(row.vessel_name_normalized);
-                const isAdding = adding[row.vessel_name_normalized] === true;
+              filteredRows.map((row, i) => {
+                const key = row.vessel_name_normalized;
+                const isWatched = watchedSet.has(key);
+                const isAdding = adding[key] === true;
+                const isOpen = menuOpenFor === key;
+                const currentInput = shipmentInput[key] ?? '';
+                const suggestions = shipmentSuggestions[key] ?? [];
+                const assigned = shipmentByVessel[key] ?? [];
+
                 return (
                   <tr key={`${row.vessel_name}-${row.source}-${row.scraped_at}-${i}`}>
                     <td style={styles.td}>{row.vessel_name}</td>
@@ -104,20 +181,67 @@ export default function ScheduleSearchTable({
                     <td style={styles.td}>{formatDateTime(row.etd)}</td>
                     <td style={styles.td}>{row.terminal ?? '-'}</td>
                     <td style={styles.td}>{formatDateTime(row.scraped_at)}</td>
+                    <td style={styles.td}>{assigned.length > 0 ? assigned.join(', ') : '-'}</td>
                     <td style={styles.td}>
                       <button
                         type="button"
-                        onClick={() => addToWatchlist(row)}
-                        disabled={isWatched || isAdding}
-                        style={{
-                          ...styles.btnWatch,
-                          backgroundColor: isWatched ? '#e2e8f0' : '#dcfce7',
-                          color: isWatched ? '#64748b' : '#166534',
-                          cursor: isWatched || isAdding ? 'default' : 'pointer',
-                        }}
+                        onClick={() => setMenuOpenFor(isOpen ? null : key)}
+                        style={styles.btnMenu}
                       >
-                        {isAdding ? 'Speichere...' : isWatched ? 'In Watchlist' : 'Zur Watchlist'}
+                        {isOpen ? 'Menü schließen' : 'S-Nr. zuordnen'}
                       </button>
+
+                      {assigned.length > 0 && (
+                        <div style={styles.assignedText}>S-Nr.: {assigned.join(', ')}</div>
+                      )}
+
+                      {isOpen && (
+                        <div style={styles.menuBox}>
+                          <input
+                            type="text"
+                            value={currentInput}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setShipmentInput((prev) => ({ ...prev, [key]: value }));
+                              fetchShipmentSuggestions(key, value);
+                            }}
+                            placeholder="S-Nr. eingeben oder suchen"
+                            style={styles.menuInput}
+                          />
+                          {suggestions.length > 0 && (
+                            <div style={styles.suggestionBox}>
+                              {suggestions.map((snr) => (
+                                <button
+                                  key={`${key}-${snr}`}
+                                  type="button"
+                                  onClick={() =>
+                                    setShipmentInput((prev) => ({ ...prev, [key]: snr }))
+                                  }
+                                  style={styles.suggestionItem}
+                                >
+                                  {snr}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => addToWatchlist(row, currentInput)}
+                            disabled={isAdding}
+                            style={{
+                              ...styles.btnWatch,
+                              backgroundColor: isWatched ? '#e2e8f0' : '#dcfce7',
+                              color: isWatched ? '#475569' : '#166534',
+                            }}
+                          >
+                            {isAdding
+                              ? 'Speichere...'
+                              : isWatched
+                                ? 'Watchlist aktualisieren'
+                                : 'Zur Watchlist speichern'}
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -141,6 +265,18 @@ const styles: Record<string, CSSProperties> = {
     gap: '10px',
     marginBottom: '8px',
     flexWrap: 'wrap',
+  },
+  filterRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    flexWrap: 'wrap',
+  },
+  input: {
+    padding: '8px 10px',
+    border: '1px solid #cbd5e1',
+    borderRadius: '8px',
+    fontSize: '13px',
   },
   metaText: {
     fontSize: '13px',
@@ -176,13 +312,65 @@ const styles: Record<string, CSSProperties> = {
     padding: '10px 14px',
     borderBottom: '1px solid #f3f4f6',
     fontSize: '14px',
-    whiteSpace: 'nowrap',
+    verticalAlign: 'top',
   },
-  btnWatch: {
-    border: '1px solid #bbf7d0',
+  btnMenu: {
+    border: '1px solid #cbd5e1',
     borderRadius: '6px',
     fontSize: '12px',
     fontWeight: 700,
     padding: '6px 10px',
+    backgroundColor: '#f8fafc',
+    color: '#334155',
+    cursor: 'pointer',
+  },
+  menuBox: {
+    marginTop: '8px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '8px',
+    padding: '8px',
+    backgroundColor: '#f8fafc',
+    minWidth: '220px',
+  },
+  menuInput: {
+    width: '100%',
+    padding: '8px 10px',
+    border: '1px solid #cbd5e1',
+    borderRadius: '6px',
+    fontSize: '13px',
+    boxSizing: 'border-box',
+  },
+  suggestionBox: {
+    marginTop: '6px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '6px',
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+  },
+  suggestionItem: {
+    width: '100%',
+    textAlign: 'left',
+    padding: '6px 8px',
+    border: 'none',
+    borderBottom: '1px solid #f1f5f9',
+    backgroundColor: '#fff',
+    cursor: 'pointer',
+    fontSize: '13px',
+  },
+  assignedText: {
+    marginTop: '6px',
+    fontSize: '12px',
+    color: '#475569',
+    maxWidth: '240px',
+  },
+  btnWatch: {
+    marginTop: '8px',
+    width: '100%',
+    border: '1px solid #bbf7d0',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontWeight: 700,
+    padding: '7px 10px',
+    cursor: 'pointer',
   },
 };
