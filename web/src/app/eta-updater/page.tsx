@@ -423,38 +423,34 @@ export default function EtaUpdaterPage() {
                   Unmatched
                 </div>
               </div>
-              {summary.skippedOld > 0 && (
-                <div style={{ ...styles.statCard, borderColor: '#94a3b8' }}>
-                  <div
-                    style={{
-                      fontSize: '28px',
-                      fontWeight: 700,
-                      color: '#94a3b8',
-                    }}
-                  >
-                    {summary.skippedOld}
-                  </div>
-                  <div style={{ fontSize: '13px', color: '#666' }}>
-                    Uebersprungen (alt)
-                  </div>
+              <div style={{ ...styles.statCard, borderColor: '#94a3b8' }}>
+                <div
+                  style={{
+                    fontSize: '28px',
+                    fontWeight: 700,
+                    color: '#94a3b8',
+                  }}
+                >
+                  {summary.skippedOld}
                 </div>
-              )}
-              {summary.skippedCustoms > 0 && (
-                <div style={{ ...styles.statCard, borderColor: '#64748b' }}>
-                  <div
-                    style={{
-                      fontSize: '28px',
-                      fontWeight: 700,
-                      color: '#64748b',
-                    }}
-                  >
-                    {summary.skippedCustoms}
-                  </div>
-                  <div style={{ fontSize: '13px', color: '#666' }}>
-                    Uebersprungen (verzollt)
-                  </div>
+                <div style={{ fontSize: '13px', color: '#666' }}>
+                  Uebersprungen (alt)
                 </div>
-              )}
+              </div>
+              <div style={{ ...styles.statCard, borderColor: '#64748b' }}>
+                <div
+                  style={{
+                    fontSize: '28px',
+                    fontWeight: 700,
+                    color: '#64748b',
+                  }}
+                >
+                  {summary.skippedCustoms}
+                </div>
+                <div style={{ fontSize: '13px', color: '#666' }}>
+                  Uebersprungen (verzollt)
+                </div>
+              </div>
             </div>
 
             {groupedUnmatched.length > 0 && (

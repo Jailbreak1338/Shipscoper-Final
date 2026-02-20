@@ -17,7 +17,15 @@ const SHIPMENT_CANDIDATES = [
 const VESSEL_CANDIDATES = ['vessel', 'vesselname', 'schiff', 'ship'];
 const ETA_CANDIDATES = ['eta', 'ankunft', 'arrival', 'etasoll', 'ankunftsoll'];
 const TERMINAL_CANDIDATES = ['terminal', 'ct', 'terminal name'];
-const CUSTOMS_CANDIDATES = ['verzollt', 'zoll', 'customs', 'custom'];
+const CUSTOMS_CANDIDATES = [
+  'verzollt',
+  'verzollung',
+  'zoll',
+  'zollstatus',
+  'customs',
+  'custom',
+  'cleared',
+];
 
 export interface ColumnMapping {
   shipmentCol?: string;
@@ -76,6 +84,8 @@ export interface UpdateResult {
 export function detectColumns(headers: string[]): DetectedColumns {
   const normalizeHeader = (h: string): string =>
     h
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .trim()
       .replace(/\s+/g, '')
