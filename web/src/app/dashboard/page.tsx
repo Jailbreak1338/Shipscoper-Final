@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import type { CSSProperties } from 'react';
+import AutoRefresh from '@/components/AutoRefresh';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -114,6 +115,7 @@ export default async function DashboardPage() {
 
   return (
     <div style={styles.container}>
+      <AutoRefresh intervalMs={15000} />
       <h1 style={styles.pageTitle}>Dashboard</h1>
 
       {/* User Stats */}
