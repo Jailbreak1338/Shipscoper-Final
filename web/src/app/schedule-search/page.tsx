@@ -18,6 +18,7 @@ type SearchParams = {
 };
 
 type ScheduleEventRowRaw = {
+  vessel_id: string;
   source: string;
   eta: string | null;
   etd: string | null;
@@ -33,6 +34,14 @@ function formatDateTime(value: string | null): string {
   return new Date(value).toLocaleString('de-DE', {
     timeZone: 'Europe/Berlin',
   });
+}
+
+function toDayDiff(newEta: string | null, oldEta: string | null): number | null {
+  if (!newEta || !oldEta) return null;
+  const newTs = Date.parse(newEta);
+  const oldTs = Date.parse(oldEta);
+  if (Number.isNaN(newTs) || Number.isNaN(oldTs)) return null;
+  return Math.round((newTs - oldTs) / 86_400_000);
 }
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
@@ -93,7 +102,7 @@ function applySort(query: any, sort: string) {
   return query.order('scraped_at', { ascending: false });
 }
 
-function toRows(rows: ScheduleEventRowRaw[]): SearchRow[] {
+function toRows(rows: ScheduleEventRowRaw[], previousEtaByKey: Map<string, string | null>): SearchRow[] {
   const mapped = rows.map((row) => {
     const vesselData = row.vessels;
     const vesselName = Array.isArray(vesselData)
@@ -108,6 +117,8 @@ function toRows(rows: ScheduleEventRowRaw[]): SearchRow[] {
       etd: row.etd,
       terminal: row.terminal,
       scraped_at: row.scraped_at,
+      previous_eta: previousEtaByKey.get(`${row.vessel_id}|${row.source}`) ?? null,
+      eta_change_days: toDayDiff(row.eta, previousEtaByKey.get(`${row.vessel_id}|${row.source}`) ?? null),
     };
   });
 
@@ -166,7 +177,7 @@ export default async function ScheduleSearchPage({
 
   const baseQuery = admin
     .from('schedule_events')
-    .select('source, eta, etd, terminal, scraped_at, vessels!inner(name)', { count: 'exact' });
+    .select('vessel_id, source, eta, etd, terminal, scraped_at, vessels!inner(name)', { count: 'exact' });
 
   const filtered = applyFilters(baseQuery, { q, source, etaWindow });
   const sorted = applySort(filtered, sort);
@@ -197,7 +208,32 @@ export default async function ScheduleSearchPage({
     );
   }
 
-  const rows = toRows((pageRes.data ?? []) as ScheduleEventRowRaw[]);
+  const pageRowsRaw = (pageRes.data ?? []) as ScheduleEventRowRaw[];
+  const pageVesselIds = Array.from(new Set(pageRowsRaw.map((r) => r.vessel_id).filter(Boolean)));
+
+  let previousEtaByKey = new Map<string, string | null>();
+  if (pageVesselIds.length > 0) {
+    const { data: recentRows } = await admin
+      .from('schedule_events')
+      .select('vessel_id, source, eta, scraped_at')
+      .in('vessel_id', pageVesselIds)
+      .order('scraped_at', { ascending: false })
+      .limit(6000);
+
+    const latestByKey = new Map<string, string | null>();
+    for (const row of recentRows ?? []) {
+      const key = `${row.vessel_id}|${row.source}`;
+      if (!latestByKey.has(key)) {
+        latestByKey.set(key, row.eta);
+        continue;
+      }
+      if (!previousEtaByKey.has(key)) {
+        previousEtaByKey.set(key, row.eta);
+      }
+    }
+  }
+
+  const rows = toRows(pageRowsRaw, previousEtaByKey);
   const totalFilteredCount = pageRes.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalFilteredCount / pageSize));
 

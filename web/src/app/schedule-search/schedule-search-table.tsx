@@ -10,6 +10,8 @@ export type SearchRow = {
   etd: string | null;
   terminal: string | null;
   scraped_at: string;
+  previous_eta: string | null;
+  eta_change_days: number | null;
 };
 
 function formatDateTime(value: string | null): string {
@@ -17,6 +19,11 @@ function formatDateTime(value: string | null): string {
   return new Date(value).toLocaleString('de-DE', {
     timeZone: 'Europe/Berlin',
   });
+}
+
+function formatEtaChange(days: number | null): string {
+  if (days == null || days === 0) return '-';
+  return `${days > 0 ? '+' : ''}${days} Tage`;
 }
 
 type ShipmentMap = Record<string, string[]>;
@@ -199,7 +206,9 @@ export default function ScheduleSearchTable({
             <tr>
               <th style={styles.th}>Vessel</th>
               <th style={styles.th}>Quelle</th>
-              <th style={styles.th}>ETA</th>
+              <th style={styles.th}>Neues ETA</th>
+              <th style={styles.th}>Letztes ETA</th>
+              <th style={styles.th}>Δ seit letztem Scrape</th>
               <th style={styles.th}>ETD</th>
               <th style={styles.th}>Terminal</th>
               <th style={styles.th}>Scraped At</th>
@@ -210,7 +219,7 @@ export default function ScheduleSearchTable({
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ ...styles.td, textAlign: 'center', color: '#777' }}>
+                <td colSpan={10} style={{ ...styles.td, textAlign: 'center', color: '#777' }}>
                   Keine Daten gefunden
                 </td>
               </tr>
@@ -229,6 +238,8 @@ export default function ScheduleSearchTable({
                     <td style={styles.td}>{row.vessel_name}</td>
                     <td style={styles.td}>{row.source}</td>
                     <td style={styles.td}>{formatDateTime(row.eta)}</td>
+                    <td style={styles.td}>{formatDateTime(row.previous_eta)}</td>
+                    <td style={styles.td}>{formatEtaChange(row.eta_change_days)}</td>
                     <td style={styles.td}>{formatDateTime(row.etd)}</td>
                     <td style={styles.td}>{row.terminal ?? '-'}</td>
                     <td style={styles.td}>{formatDateTime(row.scraped_at)}</td>
