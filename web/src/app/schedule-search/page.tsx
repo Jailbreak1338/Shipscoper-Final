@@ -251,7 +251,6 @@ export default async function ScheduleSearchPage({
     shipment_reference: string | null;
   }>;
 
-  const watched = watchedRows.map((r) => r.vessel_name_normalized);
   const shipmentByVessel = watchedRows.reduce<Record<string, string[]>>((acc, row) => {
     if (!row.shipment_reference) return acc;
     const values = row.shipment_reference
@@ -346,7 +345,6 @@ export default async function ScheduleSearchPage({
 
       <ScheduleSearchTable
         rows={rows}
-        initiallyWatched={watched}
         initialShipmentByVessel={shipmentByVessel}
         initialSnrFilter={snr}
       />

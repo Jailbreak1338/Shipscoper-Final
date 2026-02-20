@@ -251,8 +251,8 @@ export default function EtaUpdaterPage() {
                       ? '#22c55e'
                       : isActive
                         ? '#0066cc'
-                        : '#ddd',
-                    color: isDone || isActive ? '#fff' : '#999',
+                        : 'var(--surface-muted)',
+                    color: isDone || isActive ? '#fff' : 'var(--text-secondary)',
                   }}
                 >
                   {isDone ? '\u2713' : i + 1}
@@ -278,7 +278,7 @@ export default function EtaUpdaterPage() {
             style={{
               ...styles.dropzone,
               borderColor: dragOver ? '#0066cc' : '#ccc',
-              backgroundColor: dragOver ? '#f0f7ff' : '#fafafa',
+              backgroundColor: dragOver ? 'rgba(14,165,233,0.12)' : 'var(--surface-muted)',
             }}
             onDragOver={(e) => {
               e.preventDefault();
@@ -594,6 +594,7 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid var(--border)',
     borderRadius: '8px',
     backgroundColor: 'var(--surface)',
+    color: 'var(--text-primary)',
     appearance: 'auto' as CSSProperties['appearance'],
   },
   btnPrimary: {
