@@ -28,12 +28,28 @@ function formatEtaChange(days: number | null): string {
   return `${days > 0 ? '+' : ''}${days} Tage`;
 }
 
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
 export default function ScheduleSearchTable({
   rows,
+=======
+type ShipmentMap = Record<string, string[]>;
+
+function parseShipmentValues(input: string | null | undefined): string[] {
+  return String(input ?? '')
+    .split(/[;,\n]/)
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+export default function ScheduleSearchTable({
+  rows,
+  initiallyWatched,
+>>>>>>> main
   initialShipmentByVessel,
   initialSnrFilter,
 }: {
   rows: SearchRow[];
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
   initialShipmentByVessel: ShipmentMap;
   initialSnrFilter?: string;
 }) {
@@ -41,6 +57,24 @@ export default function ScheduleSearchTable({
   const [snrFilter, setSnrFilter] = useState(initialSnrFilter ?? '');
   const [onlyUnassigned, setOnlyUnassigned] = useState(false);
   const [onlyWithSnr, setOnlyWithSnr] = useState(false);
+=======
+  initiallyWatched: string[];
+  initialShipmentByVessel: ShipmentMap;
+  initialSnrFilter?: string;
+}) {
+  const [watchedSet, setWatchedSet] = useState<Set<string>>(
+    () => new Set(initiallyWatched)
+  );
+  const [shipmentByVessel, setShipmentByVessel] =
+    useState<ShipmentMap>(initialShipmentByVessel);
+  const [adding, setAdding] = useState<Record<string, boolean>>({});
+  const [flash, setFlash] = useState('');
+  const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
+  const [shipmentInput, setShipmentInput] = useState<Record<string, string>>({});
+  const [shipmentSuggestions, setShipmentSuggestions] = useState<Record<string, string[]>>({});
+  const [snrFilter, setSnrFilter] = useState(initialSnrFilter ?? '');
+  const [onlyUnassigned, setOnlyUnassigned] = useState(false);
+>>>>>>> main
 
   const uniqueVesselsOnPage = useMemo(() => {
     const names = new Set(rows.map((r) => r.vessel_name_normalized));
@@ -49,6 +83,7 @@ export default function ScheduleSearchTable({
 
   const filteredRows = useMemo(() => {
     const q = snrFilter.trim().toLowerCase();
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
 
     return rows.filter((row) => {
       const vesselShipments = shipmentByVessel[row.vessel_name_normalized] ?? [];
@@ -58,7 +93,113 @@ export default function ScheduleSearchTable({
       return vesselShipments.some((snr) => snr.toLowerCase().includes(q));
     });
   }, [rows, shipmentByVessel, snrFilter, onlyUnassigned, onlyWithSnr]);
+=======
 
+    return rows.filter((row) => {
+      const vesselShipments = shipmentByVessel[row.vessel_name_normalized] ?? [];
+      if (onlyUnassigned && vesselShipments.length > 0) return false;
+      if (!q) return true;
+      return vesselShipments.some((snr) => snr.toLowerCase().includes(q));
+    });
+  }, [rows, shipmentByVessel, snrFilter, onlyUnassigned]);
+
+  const fetchShipmentSuggestions = async (key: string, query: string) => {
+    if (query.trim().length < 2) {
+      setShipmentSuggestions((prev) => ({ ...prev, [key]: [] }));
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/shipment-numbers/search?q=${encodeURIComponent(query.trim())}`);
+      const body = await res.json();
+      if (res.ok) {
+        const values = Array.isArray(body.shipmentNumbers)
+          ? body.shipmentNumbers.map(String)
+          : [];
+        setShipmentSuggestions((prev) => ({ ...prev, [key]: values }));
+      }
+    } catch {
+      // ignore suggestion errors
+    }
+  };
+
+  const addToWatchlist = async (row: SearchRow, shipmentReference?: string) => {
+    const normalized = row.vessel_name_normalized;
+
+    setAdding((prev) => ({ ...prev, [normalized]: true }));
+    try {
+      const res = await fetch('/api/watchlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vesselName: row.vessel_name,
+          shipmentReference: shipmentReference?.trim() || null,
+        }),
+      });
+      const body = await res.json();
+
+      if (res.ok || res.status === 409) {
+        setWatchedSet((prev) => new Set(prev).add(normalized));
+
+        const savedShipmentValues = parseShipmentValues(
+          typeof body?.watch?.shipment_reference === 'string'
+            ? body.watch.shipment_reference
+            : shipmentReference
+        );
+
+        if (savedShipmentValues.length > 0) {
+          setShipmentByVessel((prev) => {
+            const existing = prev[normalized] ?? [];
+            const merged = Array.from(new Set([...existing, ...savedShipmentValues]));
+            if (merged.length === existing.length) return prev;
+            return { ...prev, [normalized]: merged };
+          });
+        }
+
+        setFlash(
+          body?.updatedExisting
+            ? `Watchlist-Eintrag für "${row.vessel_name}" aktualisiert.`
+            : `"${row.vessel_name}" wurde zur Watchlist gespeichert.`
+        );
+      } else {
+        setFlash(body?.error || 'Konnte Watchlist-Eintrag nicht erstellen.');
+      }
+    } catch {
+      setFlash('Netzwerkfehler beim Speichern in der Watchlist.');
+    } finally {
+      setAdding((prev) => ({ ...prev, [normalized]: false }));
+    }
+  };
+>>>>>>> main
+
+
+  const bulkAssignFromFilter = async () => {
+    const value = snrFilter.trim();
+    if (!value) {
+      setFlash('Bitte zuerst eine S-Nr. im Filterfeld eingeben.');
+      return;
+    }
+
+    const rowsToAssign = filteredRows.filter((row) => {
+      const assigned = shipmentByVessel[row.vessel_name_normalized] ?? [];
+      return !assigned.includes(value);
+    });
+
+    if (rowsToAssign.length === 0) {
+      setFlash('Alle sichtbaren Schiffe haben diese S-Nr. bereits.');
+      return;
+    }
+
+    const cappedRows = rowsToAssign.slice(0, 20);
+    for (const row of cappedRows) {
+      await addToWatchlist(row, value);
+    }
+
+    setFlash(
+      `S-Nr. ${value} wurde ${cappedRows.length} sichtbaren Schiffen zugeordnet.` +
+        (rowsToAssign.length > cappedRows.length ? ' (auf 20 Schiffe begrenzt)' : '')
+    );
+  };
   return (
     <div style={styles.wrap}>
       <div style={styles.headerRow}>
@@ -77,6 +218,7 @@ export default function ScheduleSearchTable({
             <input
               type="checkbox"
               checked={onlyUnassigned}
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
               onChange={(e) => {
                 const next = e.target.checked;
                 setOnlyUnassigned(next);
@@ -97,6 +239,16 @@ export default function ScheduleSearchTable({
             />
             Nur mit S-Nr.
           </label>
+=======
+              onChange={(e) => setOnlyUnassigned(e.target.checked)}
+            />
+            Nur ohne S-Nr.
+          </label>
+          <button type="button" style={styles.bulkBtn} onClick={bulkAssignFromFilter}>
+            Filter-S-Nr. zuordnen
+          </button>
+          {flash && <div style={styles.flash}>{flash}</div>}
+>>>>>>> main
         </div>
       </div>
 
@@ -112,19 +264,36 @@ export default function ScheduleSearchTable({
               <th style={styles.th}>ETD</th>
               <th style={styles.th}>Terminal</th>
               <th style={styles.th}>Scraped At</th>
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
               <th style={styles.th}>S-Nr. (aus Upload)</th>
+=======
+              <th style={styles.th}>S-Nr. (Watchlist)</th>
+              <th style={styles.th}>Aktion</th>
+>>>>>>> main
             </tr>
           </thead>
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
                 <td colSpan={9} style={{ ...styles.td, textAlign: 'center', color: 'var(--text-secondary)' }}>
+=======
+                <td colSpan={10} style={{ ...styles.td, textAlign: 'center', color: '#777' }}>
+>>>>>>> main
                   Keine Daten gefunden
                 </td>
               </tr>
             ) : (
               filteredRows.map((row, i) => {
                 const key = row.vessel_name_normalized;
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+=======
+                const isWatched = watchedSet.has(key);
+                const isAdding = adding[key] === true;
+                const isOpen = menuOpenFor === key;
+                const currentInput = shipmentInput[key] ?? '';
+                const suggestions = shipmentSuggestions[key] ?? [];
+>>>>>>> main
                 const assigned = shipmentByVessel[key] ?? [];
 
                 return (
@@ -138,6 +307,70 @@ export default function ScheduleSearchTable({
                     <td style={styles.td}>{row.terminal ?? '-'}</td>
                     <td style={styles.td}>{formatDateTime(row.scraped_at)}</td>
                     <td style={styles.td}>{assigned.length > 0 ? assigned.join(', ') : '-'}</td>
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+=======
+                    <td style={styles.td}>
+                      <button
+                        type="button"
+                        onClick={() => setMenuOpenFor(isOpen ? null : key)}
+                        style={styles.btnMenu}
+                      >
+                        {isOpen ? 'Menü schließen' : 'S-Nr. zuordnen'}
+                      </button>
+
+                      {assigned.length > 0 && (
+                        <div style={styles.assignedText}>S-Nr.: {assigned.join(', ')}</div>
+                      )}
+
+                      {isOpen && (
+                        <div style={styles.menuBox}>
+                          <input
+                            type="text"
+                            value={currentInput}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setShipmentInput((prev) => ({ ...prev, [key]: value }));
+                              fetchShipmentSuggestions(key, value);
+                            }}
+                            placeholder="S-Nr. eingeben oder suchen"
+                            style={styles.menuInput}
+                          />
+                          {suggestions.length > 0 && (
+                            <div style={styles.suggestionBox}>
+                              {suggestions.map((snr) => (
+                                <button
+                                  key={`${key}-${snr}`}
+                                  type="button"
+                                  onClick={() =>
+                                    setShipmentInput((prev) => ({ ...prev, [key]: snr }))
+                                  }
+                                  style={styles.suggestionItem}
+                                >
+                                  {snr}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => addToWatchlist(row, currentInput)}
+                            disabled={isAdding}
+                            style={{
+                              ...styles.btnWatch,
+                              backgroundColor: isWatched ? '#e2e8f0' : '#dcfce7',
+                              color: isWatched ? '#475569' : '#166534',
+                            }}
+                          >
+                            {isAdding
+                              ? 'Speichere...'
+                              : isWatched
+                                ? 'Watchlist aktualisieren'
+                                : 'Zur Watchlist speichern'}
+                          </button>
+                        </div>
+                      )}
+                    </td>
+>>>>>>> main
                   </tr>
                 );
               })
@@ -169,8 +402,16 @@ const styles: Record<string, CSSProperties> = {
   },
   input: {
     padding: '8px 10px',
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
     border: '1px solid var(--border-strong)',
     borderRadius: '8px',
+=======
+    border: '1px solid #cbd5e1',
+    borderRadius: '8px',
+    fontSize: '13px',
+  },
+  metaText: {
+>>>>>>> main
     fontSize: '13px',
     backgroundColor: 'var(--surface)',
     color: 'var(--text-primary)',
@@ -185,6 +426,23 @@ const styles: Record<string, CSSProperties> = {
     display: 'inline-flex',
     alignItems: 'center',
     gap: '6px',
+  },
+  checkLabel: {
+    fontSize: '12px',
+    color: '#475569',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  bulkBtn: {
+    border: '1px solid #bbf7d0',
+    backgroundColor: '#f0fdf4',
+    color: '#166534',
+    borderRadius: '8px',
+    padding: '7px 10px',
+    fontSize: '12px',
+    fontWeight: 700,
+    cursor: 'pointer',
   },
   tableWrap: {
     backgroundColor: 'var(--surface)',
@@ -209,5 +467,67 @@ const styles: Record<string, CSSProperties> = {
     borderBottom: '1px solid var(--border)',
     fontSize: '14px',
     verticalAlign: 'top',
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+=======
+  },
+  btnMenu: {
+    border: '1px solid #cbd5e1',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontWeight: 700,
+    padding: '6px 10px',
+    backgroundColor: '#f8fafc',
+    color: '#334155',
+    cursor: 'pointer',
+  },
+  menuBox: {
+    marginTop: '8px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '8px',
+    padding: '8px',
+    backgroundColor: '#f8fafc',
+    minWidth: '220px',
+  },
+  menuInput: {
+    width: '100%',
+    padding: '8px 10px',
+    border: '1px solid #cbd5e1',
+    borderRadius: '6px',
+    fontSize: '13px',
+    boxSizing: 'border-box',
+  },
+  suggestionBox: {
+    marginTop: '6px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '6px',
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+  },
+  suggestionItem: {
+    width: '100%',
+    textAlign: 'left',
+    padding: '6px 8px',
+    border: 'none',
+    borderBottom: '1px solid #f1f5f9',
+    backgroundColor: '#fff',
+    cursor: 'pointer',
+    fontSize: '13px',
+  },
+  assignedText: {
+    marginTop: '6px',
+    fontSize: '12px',
+    color: '#475569',
+    maxWidth: '240px',
+  },
+  btnWatch: {
+    marginTop: '8px',
+    width: '100%',
+    border: '1px solid #bbf7d0',
+    borderRadius: '6px',
+    fontSize: '12px',
+    fontWeight: 700,
+    padding: '7px 10px',
+    cursor: 'pointer',
+>>>>>>> main
   },
 };

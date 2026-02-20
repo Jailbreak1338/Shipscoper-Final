@@ -267,7 +267,11 @@ export default function WatchlistPage() {
           <p style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>
             Noch keine Vessels auf der Watchlist
           </p>
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
           <p style={{ margin: '8px 0 0', color: 'var(--text-secondary)' }}>
+=======
+          <p style={{ margin: '8px 0 0', color: '#666' }}>
+>>>>>>> main
             Füge oben ein Vessel hinzu, um bei ETA-Änderungen benachrichtigt zu werden.
           </p>
         </div>
