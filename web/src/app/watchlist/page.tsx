@@ -101,7 +101,15 @@ export default function WatchlistPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to add vessel');
 
-      setWatches((prev) => [json.watch, ...prev]);
+      setWatches((prev) => {
+        const idx = prev.findIndex((w) => w.id === json.watch.id);
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = json.watch;
+          return copy;
+        }
+        return [json.watch, ...prev];
+      });
       setVesselName('');
       setShipmentRef('');
       setSuggestions([]);

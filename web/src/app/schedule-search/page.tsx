@@ -14,6 +14,7 @@ type SearchParams = {
   pageSize?: string;
   sort?: string;
   etaWindow?: string;
+  snr?: string;
 };
 
 type ScheduleEventRowRaw = {
@@ -93,7 +94,7 @@ function applySort(query: any, sort: string) {
 }
 
 function toRows(rows: ScheduleEventRowRaw[]): SearchRow[] {
-  return rows.map((row) => {
+  const mapped = rows.map((row) => {
     const vesselData = row.vessels;
     const vesselName = Array.isArray(vesselData)
       ? (vesselData[0]?.name ?? '-')
@@ -109,6 +110,17 @@ function toRows(rows: ScheduleEventRowRaw[]): SearchRow[] {
       scraped_at: row.scraped_at,
     };
   });
+
+  // keep latest entry per vessel/source/terminal to avoid heavy duplicate history rows
+  const seen = new Set<string>();
+  const deduped: SearchRow[] = [];
+  for (const row of mapped) {
+    const key = `${row.vessel_name_normalized}|${row.source}|${row.terminal ?? '-'}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(row);
+  }
+  return deduped;
 }
 
 function withParams(base: Record<string, string>, patch: Record<string, string | undefined>) {
@@ -139,6 +151,7 @@ export default async function ScheduleSearchPage({
   const source = (searchParams.source ?? 'all').trim().toLowerCase();
   const sort = (searchParams.sort ?? 'scraped_desc').trim().toLowerCase();
   const etaWindow = (searchParams.etaWindow ?? 'all').trim().toLowerCase();
+  const snr = (searchParams.snr ?? '').trim();
   const page = parsePositiveInt(searchParams.page, 1);
   const requestedPageSize = parsePositiveInt(searchParams.pageSize, 25);
   const pageSize = PAGE_SIZE_OPTIONS.includes(requestedPageSize as (typeof PAGE_SIZE_OPTIONS)[number])
@@ -193,6 +206,7 @@ export default async function ScheduleSearchPage({
   if (source !== 'all') baseParams.source = source;
   if (sort !== 'scraped_desc') baseParams.sort = sort;
   if (etaWindow !== 'all') baseParams.etaWindow = etaWindow;
+  if (snr) baseParams.snr = snr;
   if (pageSize !== 25) baseParams.pageSize = String(pageSize);
 
   const exportHref = withParams(baseParams, {});
@@ -245,6 +259,7 @@ export default async function ScheduleSearchPage({
 
       <form method="GET" style={styles.filters}>
         <input type="text" name="q" defaultValue={q} placeholder="Vessel suchen (z.B. NORDICA)" style={styles.input} />
+        <input type="text" name="snr" defaultValue={snr} placeholder="S-Nr. suchen (z.B. S00226629)" style={styles.input} />
         <select name="source" defaultValue={source} style={styles.select}>
           <option value="all">Alle Quellen</option>
           <option value="eurogate">Eurogate</option>
@@ -290,6 +305,7 @@ export default async function ScheduleSearchPage({
         rows={rows}
         initiallyWatched={watched}
         initialShipmentByVessel={shipmentByVessel}
+        initialSnrFilter={snr}
       />
 
       <div style={styles.pager}>

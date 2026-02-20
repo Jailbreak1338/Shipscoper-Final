@@ -40,6 +40,37 @@ def _resolve_smtp_host(host: str, port: int) -> list[str]:
         return []
 
 
+
+
+def _smtp_preflight(host: str, port: int, timeout: int) -> None:
+    """Quick TCP connectivity probe to avoid long hangs across multiple addresses."""
+    ips = _resolve_smtp_host(host, port)
+    if not ips:
+        return
+
+    errors: list[str] = []
+    for ip in ips:
+        started = time.monotonic()
+        try:
+            with socket.create_connection((ip, port), timeout=timeout):
+                took_ms = int((time.monotonic() - started) * 1000)
+                logger.info(
+                    f"[email] smtp_preflight ok host={host} ip={ip} port={port} duration_ms={took_ms}"
+                )
+                return
+        except Exception as exc:
+            took_ms = int((time.monotonic() - started) * 1000)
+            errors.append(f"{ip}:{type(exc).__name__}")
+            logger.warning(
+                "[email] smtp_preflight failed "
+                f"host={host} ip={ip} port={port} duration_ms={took_ms} err={exc!r}"
+            )
+
+    raise TimeoutError(
+        f"SMTP preflight failed host={host} port={port} checked_ips={errors}"
+    )
+
+
 def _send_via_smtp(
     *,
     msg: MIMEMultipart,
@@ -52,6 +83,7 @@ def _send_via_smtp(
 ) -> dict:
     """Send one SMTP message with detailed connection diagnostics."""
     start = time.monotonic()
+    _smtp_preflight(smtp_server, smtp_port, min(smtp_timeout, 4))
     resolved_ips = _resolve_smtp_host(smtp_server, smtp_port)
     logger.info(
         "[email] smtp_attempt start "
@@ -113,7 +145,7 @@ def _deliver_message(msg: MIMEMultipart, to_email: str) -> None:
             smtp_timeout=smtp_timeout,
             smtp_security=smtp_security,
         )
-    except TimeoutError as exc:
+    except (TimeoutError, socket.timeout) as exc:
         logger.error(
             "[email] smtp_timeout "
             f"server={smtp_server} port={smtp_port} security={smtp_security} err={exc!r}"
@@ -130,6 +162,19 @@ def _deliver_message(msg: MIMEMultipart, to_email: str) -> None:
                 smtp_port=465,
                 smtp_timeout=smtp_timeout,
                 smtp_security="ssl",
+            )
+        elif smtp_security == "ssl" and smtp_port == 465:
+            logger.warning(
+                f"[email] smtp_fallback switching to STARTTLS server={smtp_server} port=587"
+            )
+            result = _send_via_smtp(
+                msg=msg,
+                address=address,
+                password=password,
+                smtp_server=smtp_server,
+                smtp_port=587,
+                smtp_timeout=smtp_timeout,
+                smtp_security="starttls",
             )
         else:
             raise
@@ -159,7 +204,7 @@ def send_eta_notification(
     delay_text = f"+{delay_days} Tage" if delay_days > 0 else f"{delay_days} Tage"
     delay_color = "#d32f2f" if delay_days > 0 else "#2e7d32"
 
-    subject = f"ETA-Aenderung: {vessel_name}"
+    subject = f"ETA-Änderung: {vessel_name}"
     if shipment_ref:
         subject += f" ({shipment_ref})"
 
@@ -172,7 +217,7 @@ def send_eta_notification(
     html_body = f"""\
 <html>
 <body style="font-family: Arial, sans-serif; color: #333;">
-  <h2 style="color: #1a1a2e;">ETA-Aenderung erkannt</h2>
+  <h2 style="color: #1a1a2e;">ETA-Änderung erkannt</h2>
 
   <table style="border-collapse: collapse; width: 100%; max-width: 560px;">
     <tr>
@@ -192,7 +237,7 @@ def send_eta_notification(
       <td style="padding: 10px 14px; color: #d32f2f; font-weight: 600;">{new_str}</td>
     </tr>
     <tr>
-      <td style="padding: 10px 14px; background: #f5f7fa; font-weight: 600;">Verzoegerung</td>
+      <td style="padding: 10px 14px; background: #f5f7fa; font-weight: 600;">Verzögerung</td>
       <td style="padding: 10px 14px; color: {delay_color}; font-weight: 600;">{delay_text}</td>
     </tr>
   </table>

@@ -25,10 +25,12 @@ export default function ScheduleSearchTable({
   rows,
   initiallyWatched,
   initialShipmentByVessel,
+  initialSnrFilter,
 }: {
   rows: SearchRow[];
   initiallyWatched: string[];
   initialShipmentByVessel: ShipmentMap;
+  initialSnrFilter?: string;
 }) {
   const [watchedSet, setWatchedSet] = useState<Set<string>>(
     () => new Set(initiallyWatched)
@@ -40,7 +42,7 @@ export default function ScheduleSearchTable({
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
   const [shipmentInput, setShipmentInput] = useState<Record<string, string>>({});
   const [shipmentSuggestions, setShipmentSuggestions] = useState<Record<string, string[]>>({});
-  const [snrFilter, setSnrFilter] = useState('');
+  const [snrFilter, setSnrFilter] = useState(initialSnrFilter ?? '');
 
   const uniqueVesselsOnPage = useMemo(() => {
     const names = new Set(rows.map((r) => r.vessel_name_normalized));
@@ -150,13 +152,14 @@ export default function ScheduleSearchTable({
               <th style={styles.th}>ETD</th>
               <th style={styles.th}>Terminal</th>
               <th style={styles.th}>Scraped At</th>
+              <th style={styles.th}>S-Nr. (Watchlist)</th>
               <th style={styles.th}>Aktion</th>
             </tr>
           </thead>
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ ...styles.td, textAlign: 'center', color: '#777' }}>
+                <td colSpan={8} style={{ ...styles.td, textAlign: 'center', color: '#777' }}>
                   Keine Daten gefunden
                 </td>
               </tr>
@@ -178,13 +181,14 @@ export default function ScheduleSearchTable({
                     <td style={styles.td}>{formatDateTime(row.etd)}</td>
                     <td style={styles.td}>{row.terminal ?? '-'}</td>
                     <td style={styles.td}>{formatDateTime(row.scraped_at)}</td>
+                    <td style={styles.td}>{assigned.length > 0 ? assigned.join(', ') : '-'}</td>
                     <td style={styles.td}>
                       <button
                         type="button"
                         onClick={() => setMenuOpenFor(isOpen ? null : key)}
                         style={styles.btnMenu}
                       >
-                        {isOpen ? 'Menü schließen' : 'Watchlist zuordnen'}
+                        {isOpen ? 'Menü schließen' : 'S-Nr. zuordnen'}
                       </button>
 
                       {assigned.length > 0 && (
