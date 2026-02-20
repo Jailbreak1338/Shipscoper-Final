@@ -251,7 +251,6 @@ export default async function ScheduleSearchPage({
     shipment_reference: string | null;
   }>;
 
-  const watched = watchedRows.map((r) => r.vessel_name_normalized);
   const shipmentByVessel = watchedRows.reduce<Record<string, string[]>>((acc, row) => {
     if (!row.shipment_reference) return acc;
     const values = row.shipment_reference
@@ -389,7 +388,7 @@ const styles: Record<string, CSSProperties> = {
   },
   subtitle: {
     margin: '0 0 20px',
-    color: '#666',
+    color: 'var(--text-secondary)',
     fontSize: '14px',
   },
   statsGrid: {
@@ -399,14 +398,14 @@ const styles: Record<string, CSSProperties> = {
     marginBottom: '18px',
   },
   statCard: {
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
     borderRadius: '10px',
     padding: '16px',
-    border: '1px solid #e5e7eb',
+    border: '1px solid var(--border)',
   },
   statLabel: {
     fontSize: '12px',
-    color: '#666',
+    color: 'var(--text-secondary)',
     marginBottom: '6px',
   },
   statValue: {
@@ -431,9 +430,9 @@ const styles: Record<string, CSSProperties> = {
   },
   quickChip: {
     fontSize: '12px',
-    border: '1px solid #cbd5e1',
-    color: '#334155',
-    backgroundColor: '#f8fafc',
+    border: '1px solid var(--border-strong)',
+    color: 'var(--text-primary)',
+    backgroundColor: 'var(--surface-muted)',
     borderRadius: '999px',
     padding: '6px 10px',
     textDecoration: 'none',
@@ -443,16 +442,19 @@ const styles: Record<string, CSSProperties> = {
     minWidth: '240px',
     padding: '10px 12px',
     borderRadius: '8px',
-    border: '1px solid #d1d5db',
+    border: '1px solid var(--border)',
     fontSize: '14px',
+    backgroundColor: 'var(--surface)',
+    color: 'var(--text-primary)',
   },
   select: {
     minWidth: '170px',
     padding: '10px 12px',
     borderRadius: '8px',
-    border: '1px solid #d1d5db',
+    border: '1px solid var(--border)',
     fontSize: '14px',
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
+    color: 'var(--text-primary)',
   },
   btnPrimary: {
     padding: '10px 14px',
@@ -469,9 +471,9 @@ const styles: Record<string, CSSProperties> = {
   },
   btnGhost: {
     padding: '10px 14px',
-    backgroundColor: '#fff',
-    color: '#334155',
-    border: '1px solid #cbd5e1',
+    backgroundColor: 'var(--surface)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--border-strong)',
     borderRadius: '8px',
     fontWeight: 600,
     textDecoration: 'none',
@@ -493,7 +495,7 @@ const styles: Record<string, CSSProperties> = {
   },
   btnDisabled: {
     padding: '10px 14px',
-    backgroundColor: '#e5e7eb',
+    backgroundColor: 'var(--surface-muted)',
     color: '#94a3b8',
     borderRadius: '8px',
     fontWeight: 600,
@@ -509,7 +511,7 @@ const styles: Record<string, CSSProperties> = {
   },
   pagerText: {
     fontSize: '13px',
-    color: '#64748b',
+    color: 'var(--text-secondary)',
   },
   errorBox: {
     padding: '12px',

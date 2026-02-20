@@ -3,6 +3,36 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { normalizeVesselName } from '@/lib/normalize';
 
+
+function parseShipmentRefs(input: string | null | undefined): string[] {
+  return String(input ?? '')
+    .split(/[;,\n]/)
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+async function isShipmentRefAlreadyAssigned(
+  supabase: ReturnType<typeof createRouteHandlerClient>,
+  userId: string,
+  shipmentRef: string,
+  allowedVesselNormalized?: string
+): Promise<boolean> {
+  const { data } = await supabase
+    .from('vessel_watches')
+    .select('vessel_name_normalized, shipment_reference')
+    .eq('user_id', userId);
+
+  for (const row of data ?? []) {
+    if (allowedVesselNormalized && row.vessel_name_normalized === allowedVesselNormalized) continue;
+    const refs = parseShipmentRefs(row.shipment_reference);
+    if (refs.includes(shipmentRef)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+
 /** GET /api/watchlist — list user's watched vessels */
 export async function GET() {
   const supabase = createRouteHandlerClient({ cookies });
@@ -64,6 +94,21 @@ export async function POST(request: NextRequest) {
 
   const currentEta = schedule?.eta ?? null;
 
+  if (shipmentReference) {
+    const alreadyAssigned = await isShipmentRefAlreadyAssigned(
+      supabase,
+      session.user.id,
+      shipmentReference,
+      normalized
+    );
+    if (alreadyAssigned) {
+      return NextResponse.json(
+        { error: 'Diese S-Nr. ist bereits einem anderen Schiff zugeordnet.' },
+        { status: 409 }
+      );
+    }
+  }
+
   const { data, error } = await supabase.from('vessel_watches').insert({
     user_id: session.user.id,
     vessel_name: vesselName,
@@ -94,13 +139,22 @@ export async function POST(request: NextRequest) {
       }
 
       if (shipmentReference) {
+        const alreadyAssigned = await isShipmentRefAlreadyAssigned(
+          supabase,
+          session.user.id,
+          shipmentReference,
+          normalized
+        );
+        if (alreadyAssigned) {
+          return NextResponse.json(
+            { error: 'Diese S-Nr. ist bereits einem anderen Schiff zugeordnet.' },
+            { status: 409 }
+          );
+        }
+
         const merged = Array.from(
           new Set(
-            String(existing.shipment_reference || '')
-             .split(/[;,\n]/)
-              .map((v) => v.trim())
-              .filter(Boolean)
-              .concat(shipmentReference)
+            parseShipmentRefs(existing.shipment_reference).concat(shipmentReference)
           )
         ).join(', ');
 

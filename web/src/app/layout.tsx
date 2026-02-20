@@ -3,6 +3,10 @@ import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import LogoutButton from '@/components/LogoutButton';
 import ThemeToggle from '@/components/ThemeToggle';
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+import ThemeInitializer from '@/components/ThemeInitializer';
+=======
+>>>>>>> main
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -49,6 +53,7 @@ export default async function RootLayout({
           minHeight: '100vh',
         }}
       >
+        <ThemeInitializer />
         {session && (
           <header
             style={{

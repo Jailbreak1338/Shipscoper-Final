@@ -30,6 +30,10 @@ interface UpdateSummary {
     newEta: string | null;
   }>;
   autoAssignedShipments?: number;
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+  autoAssignSkippedConflicts?: number;
+=======
+>>>>>>> main
 }
 
 type Step = 'upload' | 'columns' | 'processing' | 'result';
@@ -250,8 +254,8 @@ export default function EtaUpdaterPage() {
                       ? '#22c55e'
                       : isActive
                         ? '#0066cc'
-                        : '#ddd',
-                    color: isDone || isActive ? '#fff' : '#999',
+                        : 'var(--surface-muted)',
+                    color: isDone || isActive ? '#fff' : 'var(--text-secondary)',
                   }}
                 >
                   {isDone ? '\u2713' : i + 1}
@@ -277,7 +281,7 @@ export default function EtaUpdaterPage() {
             style={{
               ...styles.dropzone,
               borderColor: dragOver ? '#0066cc' : '#ccc',
-              backgroundColor: dragOver ? '#f0f7ff' : '#fafafa',
+              backgroundColor: dragOver ? 'rgba(14,165,233,0.12)' : 'var(--surface-muted)',
             }}
             onDragOver={(e) => {
               e.preventDefault();
@@ -302,7 +306,11 @@ export default function EtaUpdaterPage() {
                 ? 'Datei wird analysiert...'
                 : 'Excel-Datei hier ablegen'}
             </p>
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+            <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-secondary)' }}>
+=======
             <p style={{ margin: 0, fontSize: '14px', color: '#888' }}>
+>>>>>>> main
               oder klicken zum Auswählen (.xlsx / .xls, max 10 MB)
             </p>
           </div>
@@ -310,10 +318,10 @@ export default function EtaUpdaterPage() {
 
         {step === 'columns' && detected && (
           <div style={styles.section}>
-            <p style={{ margin: '0 0 4px', fontSize: '14px', color: '#666' }}>
+            <p style={{ margin: '0 0 4px', fontSize: '14px', color: 'var(--text-secondary)' }}>
               Datei: <strong>{file?.name}</strong>
             </p>
-            <p style={{ margin: '0 0 16px', fontSize: '13px', color: '#888' }}>
+            <p style={{ margin: '0 0 16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
               Spalten automatisch erkannt. Bei Bedarf anpassen.
             </p>
 
@@ -410,7 +418,7 @@ export default function EtaUpdaterPage() {
         {step === 'processing' && (
           <div style={{ textAlign: 'center' as const, padding: '48px 0' }}>
             <div style={styles.spinner} />
-            <p style={{ marginTop: '16px', color: '#666' }}>
+            <p style={{ marginTop: '16px', color: 'var(--text-secondary)' }}>
               ETAs werden abgeglichen...
             </p>
           </div>
@@ -439,12 +447,22 @@ export default function EtaUpdaterPage() {
               Sendungen - ETA Abgleich
             </h3>
 
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+            <p style={{ margin: '0 0 12px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+=======
             <p style={{ margin: '0 0 12px', color: '#4b5563', fontSize: '14px' }}>
+>>>>>>> main
               Übersprungen (alt): {summary.skippedOld} · Übersprungen (verzollt):{' '}
               {summary.skippedCustoms}
               {typeof summary.autoAssignedShipments === 'number' ? (
                 <> · Auto-Zuordnungen S-Nr.: {summary.autoAssignedShipments}</>
               ) : null}
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+              {typeof summary.autoAssignSkippedConflicts === 'number' && summary.autoAssignSkippedConflicts > 0 ? (
+                <> · Konflikte (S-Nr. bereits bei anderem Schiff): {summary.autoAssignSkippedConflicts}</>
+              ) : null}
+=======
+>>>>>>> main
             </p>
 
             {groupedEtaChanges.length > 0 ? (
@@ -525,7 +543,8 @@ const styles: Record<string, CSSProperties> = {
     padding: '24px 16px',
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
+    border: '1px solid var(--border)',
     borderRadius: '12px',
     padding: '32px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)',
@@ -538,7 +557,7 @@ const styles: Record<string, CSSProperties> = {
   subtitle: {
     margin: '0 0 24px',
     fontSize: '15px',
-    color: '#666',
+    color: 'var(--text-secondary)',
   },
   steps: {
     display: 'flex',
@@ -546,7 +565,7 @@ const styles: Record<string, CSSProperties> = {
     gap: '32px',
     marginBottom: '28px',
     paddingBottom: '20px',
-    borderBottom: '1px solid #eee',
+    borderBottom: '1px solid var(--border)',
   },
   stepItem: {
     display: 'flex',
@@ -565,7 +584,7 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 600,
   },
   dropzone: {
-    border: '2px dashed #ccc',
+    border: '2px dashed var(--border-strong)',
     borderRadius: '12px',
     padding: '48px 24px',
     textAlign: 'center',
@@ -586,9 +605,10 @@ const styles: Record<string, CSSProperties> = {
     width: '100%',
     padding: '10px 12px',
     fontSize: '14px',
-    border: '1px solid #d1d5db',
+    border: '1px solid var(--border)',
     borderRadius: '8px',
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
+    color: 'var(--text-primary)',
     appearance: 'auto' as CSSProperties['appearance'],
   },
   btnPrimary: {
@@ -608,9 +628,9 @@ const styles: Record<string, CSSProperties> = {
     padding: '12px 24px',
     fontSize: '15px',
     fontWeight: 600,
-    color: '#333',
-    backgroundColor: '#f3f4f6',
-    border: '1px solid #d1d5db',
+    color: 'var(--text-primary)',
+    backgroundColor: 'var(--surface-muted)',
+    border: '1px solid var(--border)',
     borderRadius: '8px',
     cursor: 'pointer',
   },
@@ -624,10 +644,17 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid #fecaca',
   },
   matchCard: {
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+    border: '1px solid var(--border)',
+    borderRadius: '10px',
+    padding: '14px 16px',
+    backgroundColor: 'var(--surface-muted)',
+=======
     border: '1px solid #d1d5db',
     borderRadius: '10px',
     padding: '14px 16px',
     backgroundColor: '#f9fafb',
+>>>>>>> main
   },
   statusBadge: {
     display: 'inline-block',
@@ -646,13 +673,17 @@ const styles: Record<string, CSSProperties> = {
     listStyle: 'none',
   },
   shipmentRow: {
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+    borderTop: '1px solid var(--border)',
+=======
     borderTop: '1px solid #e5e7eb',
+>>>>>>> main
     padding: '10px 2px 2px',
     fontSize: '15px',
   },
   unmatchedBox: {
     padding: '16px',
-    backgroundColor: '#fffbeb',
+    backgroundColor: 'var(--surface-muted)',
     border: '1px solid #fde68a',
     borderRadius: '8px',
     fontSize: '14px',
@@ -661,15 +692,21 @@ const styles: Record<string, CSSProperties> = {
   emptyInfo: {
     padding: '14px',
     borderRadius: '8px',
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+    border: '1px solid var(--border)',
+    backgroundColor: 'var(--surface-muted)',
+    color: 'var(--text-primary)',
+=======
     border: '1px solid #e5e7eb',
     backgroundColor: '#f9fafb',
     color: '#374151',
+>>>>>>> main
     fontSize: '14px',
   },
   spinner: {
     width: '40px',
     height: '40px',
-    border: '4px solid #e5e7eb',
+    border: '4px solid var(--border)',
     borderTopColor: '#0066cc',
     borderRadius: '50%',
     margin: '0 auto',

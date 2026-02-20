@@ -14,6 +14,8 @@ export type SearchRow = {
   eta_change_days: number | null;
 };
 
+type ShipmentMap = Record<string, string[]>;
+
 function formatDateTime(value: string | null): string {
   if (!value) return '-';
   return new Date(value).toLocaleString('de-DE', {
@@ -26,6 +28,10 @@ function formatEtaChange(days: number | null): string {
   return `${days > 0 ? '+' : ''}${days} Tage`;
 }
 
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+export default function ScheduleSearchTable({
+  rows,
+=======
 type ShipmentMap = Record<string, string[]>;
 
 function parseShipmentValues(input: string | null | undefined): string[] {
@@ -38,10 +44,20 @@ function parseShipmentValues(input: string | null | undefined): string[] {
 export default function ScheduleSearchTable({
   rows,
   initiallyWatched,
+>>>>>>> main
   initialShipmentByVessel,
   initialSnrFilter,
 }: {
   rows: SearchRow[];
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+  initialShipmentByVessel: ShipmentMap;
+  initialSnrFilter?: string;
+}) {
+  const [shipmentByVessel] = useState<ShipmentMap>(initialShipmentByVessel);
+  const [snrFilter, setSnrFilter] = useState(initialSnrFilter ?? '');
+  const [onlyUnassigned, setOnlyUnassigned] = useState(false);
+  const [onlyWithSnr, setOnlyWithSnr] = useState(false);
+=======
   initiallyWatched: string[];
   initialShipmentByVessel: ShipmentMap;
   initialSnrFilter?: string;
@@ -58,6 +74,7 @@ export default function ScheduleSearchTable({
   const [shipmentSuggestions, setShipmentSuggestions] = useState<Record<string, string[]>>({});
   const [snrFilter, setSnrFilter] = useState(initialSnrFilter ?? '');
   const [onlyUnassigned, setOnlyUnassigned] = useState(false);
+>>>>>>> main
 
   const uniqueVesselsOnPage = useMemo(() => {
     const names = new Set(rows.map((r) => r.vessel_name_normalized));
@@ -66,6 +83,17 @@ export default function ScheduleSearchTable({
 
   const filteredRows = useMemo(() => {
     const q = snrFilter.trim().toLowerCase();
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+
+    return rows.filter((row) => {
+      const vesselShipments = shipmentByVessel[row.vessel_name_normalized] ?? [];
+      if (onlyUnassigned && vesselShipments.length > 0) return false;
+      if (onlyWithSnr && vesselShipments.length === 0) return false;
+      if (!q) return true;
+      return vesselShipments.some((snr) => snr.toLowerCase().includes(q));
+    });
+  }, [rows, shipmentByVessel, snrFilter, onlyUnassigned, onlyWithSnr]);
+=======
 
     return rows.filter((row) => {
       const vesselShipments = shipmentByVessel[row.vessel_name_normalized] ?? [];
@@ -142,6 +170,7 @@ export default function ScheduleSearchTable({
       setAdding((prev) => ({ ...prev, [normalized]: false }));
     }
   };
+>>>>>>> main
 
 
   const bulkAssignFromFilter = async () => {
@@ -189,6 +218,28 @@ export default function ScheduleSearchTable({
             <input
               type="checkbox"
               checked={onlyUnassigned}
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+              onChange={(e) => {
+                const next = e.target.checked;
+                setOnlyUnassigned(next);
+                if (next) setOnlyWithSnr(false);
+              }}
+            />
+            Nur ohne S-Nr.
+          </label>
+          <label style={styles.checkLabel}>
+            <input
+              type="checkbox"
+              checked={onlyWithSnr}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setOnlyWithSnr(next);
+                if (next) setOnlyUnassigned(false);
+              }}
+            />
+            Nur mit S-Nr.
+          </label>
+=======
               onChange={(e) => setOnlyUnassigned(e.target.checked)}
             />
             Nur ohne S-Nr.
@@ -197,6 +248,7 @@ export default function ScheduleSearchTable({
             Filter-S-Nr. zuordnen
           </button>
           {flash && <div style={styles.flash}>{flash}</div>}
+>>>>>>> main
         </div>
       </div>
 
@@ -212,25 +264,36 @@ export default function ScheduleSearchTable({
               <th style={styles.th}>ETD</th>
               <th style={styles.th}>Terminal</th>
               <th style={styles.th}>Scraped At</th>
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+              <th style={styles.th}>S-Nr. (aus Upload)</th>
+=======
               <th style={styles.th}>S-Nr. (Watchlist)</th>
               <th style={styles.th}>Aktion</th>
+>>>>>>> main
             </tr>
           </thead>
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+                <td colSpan={9} style={{ ...styles.td, textAlign: 'center', color: 'var(--text-secondary)' }}>
+=======
                 <td colSpan={10} style={{ ...styles.td, textAlign: 'center', color: '#777' }}>
+>>>>>>> main
                   Keine Daten gefunden
                 </td>
               </tr>
             ) : (
               filteredRows.map((row, i) => {
                 const key = row.vessel_name_normalized;
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+=======
                 const isWatched = watchedSet.has(key);
                 const isAdding = adding[key] === true;
                 const isOpen = menuOpenFor === key;
                 const currentInput = shipmentInput[key] ?? '';
                 const suggestions = shipmentSuggestions[key] ?? [];
+>>>>>>> main
                 const assigned = shipmentByVessel[key] ?? [];
 
                 return (
@@ -244,6 +307,8 @@ export default function ScheduleSearchTable({
                     <td style={styles.td}>{row.terminal ?? '-'}</td>
                     <td style={styles.td}>{formatDateTime(row.scraped_at)}</td>
                     <td style={styles.td}>{assigned.length > 0 ? assigned.join(', ') : '-'}</td>
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+=======
                     <td style={styles.td}>
                       <button
                         type="button"
@@ -305,6 +370,7 @@ export default function ScheduleSearchTable({
                         </div>
                       )}
                     </td>
+>>>>>>> main
                   </tr>
                 );
               })
@@ -336,21 +402,30 @@ const styles: Record<string, CSSProperties> = {
   },
   input: {
     padding: '8px 10px',
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+    border: '1px solid var(--border-strong)',
+    borderRadius: '8px',
+=======
     border: '1px solid #cbd5e1',
     borderRadius: '8px',
     fontSize: '13px',
   },
   metaText: {
+>>>>>>> main
     fontSize: '13px',
-    color: '#64748b',
+    backgroundColor: 'var(--surface)',
+    color: 'var(--text-primary)',
   },
-  flash: {
+  metaText: {
     fontSize: '13px',
-    color: '#155e75',
-    backgroundColor: '#ecfeff',
-    border: '1px solid #a5f3fc',
-    borderRadius: '8px',
-    padding: '6px 10px',
+    color: 'var(--text-secondary)',
+  },
+  checkLabel: {
+    fontSize: '12px',
+    color: 'var(--text-secondary)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
   },
   checkLabel: {
     fontSize: '12px',
@@ -370,9 +445,9 @@ const styles: Record<string, CSSProperties> = {
     cursor: 'pointer',
   },
   tableWrap: {
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
     borderRadius: '12px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+    border: '1px solid var(--border)',
     overflow: 'auto',
   },
   table: {
@@ -383,15 +458,17 @@ const styles: Record<string, CSSProperties> = {
     padding: '12px 14px',
     textAlign: 'left',
     fontSize: '13px',
-    color: '#666',
-    borderBottom: '1px solid #e5e7eb',
+    color: 'var(--text-secondary)',
+    borderBottom: '1px solid var(--border)',
     whiteSpace: 'nowrap',
   },
   td: {
     padding: '10px 14px',
-    borderBottom: '1px solid #f3f4f6',
+    borderBottom: '1px solid var(--border)',
     fontSize: '14px',
     verticalAlign: 'top',
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+=======
   },
   btnMenu: {
     border: '1px solid #cbd5e1',
@@ -451,5 +528,6 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 700,
     padding: '7px 10px',
     cursor: 'pointer',
+>>>>>>> main
   },
 };

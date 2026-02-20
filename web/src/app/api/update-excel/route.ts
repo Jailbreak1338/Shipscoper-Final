@@ -25,7 +25,11 @@ async function autoAssignShipmentsFromUpload(params: {
   fileBuffer: Buffer;
   vesselCol: string;
   shipmentCol: string;
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+}): Promise<{ updatedCount: number; skippedConflicts: number }> {
+=======
 }): Promise<number> {
+>>>>>>> main
   const workbook = XLSX.read(params.fileBuffer, { type: 'buffer' });
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
@@ -52,12 +56,59 @@ async function autoAssignShipmentsFromUpload(params: {
   }
 
   if (assignmentByVessel.size === 0) {
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+    return { updatedCount: 0, skippedConflicts: 0 };
+=======
     return 0;
+>>>>>>> main
   }
 
   const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
   const admin = getSupabaseAdmin();
 
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+  const { data: existingRows, error: existingError } = await admin
+    .from('vessel_watches')
+    .select('id, vessel_name_normalized, shipment_reference')
+    .eq('user_id', params.userId);
+
+  if (existingError) {
+    console.error('autoAssignShipmentsFromUpload: failed to fetch existing rows', existingError);
+    return { updatedCount: 0, skippedConflicts: 0 };
+  }
+
+  const existingByVessel = new Map<string, { id: string; refs: Set<string> }>();
+  const ownerByShipmentRef = new Map<string, string>();
+  for (const row of existingRows ?? []) {
+    const key = String(row.vessel_name_normalized);
+    const refs = new Set(parseShipmentRefs(row.shipment_reference));
+    if (assignmentByVessel.has(key) && !existingByVessel.has(key)) {
+      existingByVessel.set(key, {
+        id: String(row.id),
+        refs,
+      });
+    }
+    for (const ref of refs) {
+      ownerByShipmentRef.set(ref, key);
+    }
+  }
+
+  let updatedCount = 0;
+  let skippedConflicts = 0;
+
+  const fileOwnerByRef = new Map<string, string>();
+  for (const [normalized, payload] of assignmentByVessel.entries()) {
+    for (const ref of payload.refs) {
+      const prev = fileOwnerByRef.get(ref);
+      if (prev && prev !== normalized) {
+        payload.refs.delete(ref);
+        skippedConflicts += 1;
+      } else {
+        fileOwnerByRef.set(ref, normalized);
+      }
+    }
+  }
+=======
   const normalizedNames = Array.from(assignmentByVessel.keys());
   const { data: existingRows, error: existingError } = await admin
     .from('vessel_watches')
@@ -81,6 +132,7 @@ async function autoAssignShipmentsFromUpload(params: {
   }
 
   let updatedCount = 0;
+>>>>>>> main
   const inserts: Array<{
     user_id: string;
     vessel_name: string;
@@ -90,7 +142,18 @@ async function autoAssignShipmentsFromUpload(params: {
   }> = [];
 
   for (const [normalized, payload] of assignmentByVessel.entries()) {
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+    const refs = Array.from(payload.refs).filter((ref) => {
+      const owner = ownerByShipmentRef.get(ref);
+      if (!owner || owner === normalized) return true;
+      skippedConflicts += 1;
+      return false;
+    });
+    if (refs.length === 0) continue;
+
+=======
     const refs = Array.from(payload.refs);
+>>>>>>> main
     const existing = existingByVessel.get(normalized);
 
     if (!existing) {
@@ -132,7 +195,11 @@ async function autoAssignShipmentsFromUpload(params: {
     }
   }
 
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+  return { updatedCount, skippedConflicts };
+=======
   return updatedCount;
+>>>>>>> main
 }
 
 async function logUpload(params: {
@@ -339,13 +406,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       console.error('logUpload failed:', logErr);
     }
     let autoAssignedCount = 0;
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+    let autoAssignSkippedConflicts = 0;
+    if (shipmentCol) {
+      const assignResult = await autoAssignShipmentsFromUpload({
+=======
     if (shipmentCol) {
       autoAssignedCount = await autoAssignShipmentsFromUpload({
+>>>>>>> main
         userId: session.user.id,
         fileBuffer,
         vesselCol,
         shipmentCol,
       });
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+      autoAssignedCount = assignResult.updatedCount;
+      autoAssignSkippedConflicts = assignResult.skippedConflicts;
+=======
+>>>>>>> main
     }
 
     revalidatePath('/dashboard');
@@ -364,6 +442,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         unmatchedRows: result.unmatchedRows,
         etaChanges: result.etaChanges,
         autoAssignedShipments: autoAssignedCount,
+<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
+        autoAssignSkippedConflicts,
+=======
+>>>>>>> main
       },
       file_ttl_minutes: TMP_TTL_MIN,
     });

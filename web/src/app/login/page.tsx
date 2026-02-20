@@ -98,11 +98,12 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f5f7fa',
+    backgroundColor: 'var(--bg-app)',
     padding: '16px',
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
+    border: '1px solid var(--border)',
     padding: '40px',
     borderRadius: '12px',
     boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)',
@@ -134,11 +135,11 @@ const styles: Record<string, CSSProperties> = {
   },
   subtitle: {
     margin: '8px 0 24px',
-    color: '#666',
+    color: 'var(--text-secondary)',
     fontSize: '15px',
   },
   error: {
-    backgroundColor: '#fef2f2',
+    backgroundColor: 'var(--surface-muted)',
     border: '1px solid #fecaca',
     color: '#b91c1c',
     padding: '12px 16px',
@@ -158,9 +159,11 @@ const styles: Record<string, CSSProperties> = {
   input: {
     width: '100%',
     padding: '10px 12px',
-    border: '1px solid #d1d5db',
+    border: '1px solid var(--border)',
     borderRadius: '8px',
     fontSize: '14px',
+    backgroundColor: 'var(--surface)',
+    color: 'var(--text-primary)',
     boxSizing: 'border-box' as CSSProperties['boxSizing'],
   },
   button: {
@@ -176,7 +179,7 @@ const styles: Record<string, CSSProperties> = {
   footer: {
     marginTop: '24px',
     fontSize: '13px',
-    color: '#888',
+    color: 'var(--text-secondary)',
     textAlign: 'center' as CSSProperties['textAlign'],
   },
 };
