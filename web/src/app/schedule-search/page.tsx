@@ -171,7 +171,7 @@ export default async function ScheduleSearchPage({
       .maybeSingle(),
     supabase
       .from('vessel_watches')
-      .select('vessel_name_normalized')
+      .select('vessel_name_normalized, shipment_reference')
       .eq('user_id', session.user.id),
   ]);
 
@@ -196,7 +196,22 @@ export default async function ScheduleSearchPage({
   if (pageSize !== 25) baseParams.pageSize = String(pageSize);
 
   const exportHref = withParams(baseParams, {});
-  const watched = (watchedRes.data ?? []).map((r) => r.vessel_name_normalized);
+  const watchedRows = (watchedRes.data ?? []) as Array<{
+    vessel_name_normalized: string;
+    shipment_reference: string | null;
+  }>;
+
+  const watched = watchedRows.map((r) => r.vessel_name_normalized);
+  const shipmentByVessel = watchedRows.reduce<Record<string, string[]>>((acc, row) => {
+    if (!row.shipment_reference) return acc;
+    const value = row.shipment_reference.trim();
+    if (!value) return acc;
+    const existing = acc[row.vessel_name_normalized] ?? [];
+    if (!existing.includes(value)) {
+      acc[row.vessel_name_normalized] = [...existing, value];
+    }
+    return acc;
+  }, {});
   const lastRun = lastRunRes.data;
   const lastRunText = lastRun
     ? `${formatDateTime(lastRun.started_at)} (${lastRun.status})`
@@ -206,7 +221,7 @@ export default async function ScheduleSearchPage({
     <div style={styles.container}>
       <h1 style={styles.pageTitle}>Datenbank Suche</h1>
       <p style={styles.subtitle}>
-        Volltextsuche ueber alle gespeicherten Datensaetze mit Export und Watchlist-Quick-Add.
+        Volltextsuche über alle gespeicherten Datensätze mit Export und Watchlist-Quick-Add.
       </p>
 
       <div style={styles.statsGrid}>
@@ -265,13 +280,17 @@ export default async function ScheduleSearchPage({
       </form>
 
       <div style={styles.quickWrap}>
-        <a href={withParams(baseParams, { etaWindow: '7d', page: '1' })} style={styles.quickChip}>Naechste 7 Tage</a>
+        <a href={withParams(baseParams, { etaWindow: '7d', page: '1' })} style={styles.quickChip}>Nächste 7 Tage</a>
         <a href={withParams(baseParams, { etaWindow: 'unknown', page: '1' })} style={styles.quickChip}>Ohne ETA</a>
         <a href={withParams(baseParams, { source: 'eurogate', page: '1' })} style={styles.quickChip}>Nur Eurogate</a>
         <a href={withParams(baseParams, { source: 'hhla', page: '1' })} style={styles.quickChip}>Nur HHLA</a>
       </div>
 
-      <ScheduleSearchTable rows={rows} initiallyWatched={watched} />
+      <ScheduleSearchTable
+        rows={rows}
+        initiallyWatched={watched}
+        initialShipmentByVessel={shipmentByVessel}
+      />
 
       <div style={styles.pager}>
         <span style={styles.pagerText}>
@@ -280,10 +299,10 @@ export default async function ScheduleSearchPage({
         <div style={{ display: 'flex', gap: '8px' }}>
           {page > 1 ? (
             <a href={withParams(baseParams, { page: String(page - 1) })} style={styles.btnGhost}>
-              Zurueck
+              Zurück
             </a>
           ) : (
-            <span style={styles.btnDisabled}>Zurueck</span>
+            <span style={styles.btnDisabled}>Zurück</span>
           )}
           {page < totalPages ? (
             <a href={withParams(baseParams, { page: String(page + 1) })} style={styles.btnPrimary}>

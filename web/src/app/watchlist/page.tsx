@@ -27,6 +27,7 @@ export default function WatchlistPage() {
   const [shipmentRef, setShipmentRef] = useState('');
   const [adding, setAdding] = useState(false);
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
+  const [watchSearch, setWatchSearch] = useState('');
 
   const [suggestions, setSuggestions] = useState<VesselSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -71,6 +72,16 @@ export default function WatchlistPage() {
 
     return () => clearTimeout(timer);
   }, [vesselName]);
+
+
+  const filteredWatches = watches.filter((watch) => {
+    const query = watchSearch.trim().toLowerCase();
+    if (!query) return true;
+    return (
+      watch.vessel_name.toLowerCase().includes(query) ||
+      (watch.shipment_reference || '').toLowerCase().includes(query)
+    );
+  });
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -227,7 +238,7 @@ export default function WatchlistPage() {
             style={{ ...styles.input, maxWidth: '220px' }}
           />
           <button type="submit" disabled={adding} style={styles.btnAdd}>
-            {adding ? 'Wird hinzugefuegt...' : 'Hinzufuegen'}
+            {adding ? 'Wird hinzugefügt...' : 'Hinzufügen'}
           </button>
         </div>
       </form>
@@ -241,20 +252,30 @@ export default function WatchlistPage() {
         </div>
       )}
 
+      <div style={styles.searchRow}>
+        <input
+          type="text"
+          value={watchSearch}
+          onChange={(e) => setWatchSearch(e.target.value)}
+          placeholder="Watchlist durchsuchen (Vessel oder S-Nr.)"
+          style={styles.input}
+        />
+      </div>
+
       {loading && <p style={styles.loadingText}>Watchlist wird geladen...</p>}
 
-      {!loading && watches.length === 0 && (
+      {!loading && filteredWatches.length === 0 && (
         <div style={styles.empty}>
           <p style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>
             Noch keine Vessels auf der Watchlist
           </p>
           <p style={{ margin: '8px 0 0', color: '#666' }}>
-            Fuege oben ein Vessel hinzu, um bei ETA-Aenderungen benachrichtigt zu werden.
+            Füge oben ein Vessel hinzu, um bei ETA-Änderungen benachrichtigt zu werden.
           </p>
         </div>
       )}
 
-      {watches.length > 0 && (
+      {filteredWatches.length > 0 && (
         <div style={styles.tableWrap}>
           <table style={styles.table}>
             <thead>
@@ -263,12 +284,12 @@ export default function WatchlistPage() {
                 <th style={styles.th}>Sendung</th>
                 <th style={styles.th}>Letzte ETA</th>
                 <th style={styles.th}>Benachrichtigung</th>
-                <th style={styles.th}>Hinzugefuegt</th>
+                <th style={styles.th}>Hinzugefügt</th>
                 <th style={styles.th}></th>
               </tr>
             </thead>
             <tbody>
-              {watches.map((watch) => (
+              {filteredWatches.map((watch) => (
                 <tr key={watch.id}>
                   <td style={{ ...styles.td, fontWeight: 600 }}>{watch.vessel_name}</td>
                   <td style={styles.td}>{watch.shipment_reference || '-'}</td>
@@ -321,6 +342,9 @@ const styles: Record<string, CSSProperties> = {
   },
   form: {
     marginBottom: '24px',
+  },
+  searchRow: {
+    marginBottom: '12px',
   },
   formRow: {
     display: 'flex',

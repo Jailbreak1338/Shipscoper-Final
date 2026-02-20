@@ -1,6 +1,9 @@
-﻿"""Send ETA change notification emails."""
+"""Send ETA change notification emails."""
 
 import smtplib
+import socket
+import ssl
+import time
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -22,16 +25,68 @@ def _format_eta(iso_str: str | None) -> str:
         return iso_str
 
 
-def send_eta_notification(
-    to_email: str,
-    vessel_name: str,
-    shipment_ref: str | None,
-    old_eta: str | None,
-    new_eta: str | None,
-    delay_days: int,
-) -> None:
-    """Send an ETA change notification email via SMTP."""
+def _resolve_smtp_host(host: str, port: int) -> list[str]:
+    """Resolve SMTP host and return a compact list of IPs for diagnostics."""
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+        ips = []
+        for info in infos:
+            ip = info[4][0]
+            if ip not in ips:
+                ips.append(ip)
+        return ips[:5]
+    except Exception as exc:
+        logger.warning(f"[email] DNS resolve failed host={host} port={port} err={exc!r}")
+        return []
 
+
+def _send_via_smtp(
+    *,
+    msg: MIMEMultipart,
+    address: str,
+    password: str,
+    smtp_server: str,
+    smtp_port: int,
+    smtp_timeout: int,
+    smtp_security: str,
+) -> dict:
+    """Send one SMTP message with detailed connection diagnostics."""
+    start = time.monotonic()
+    resolved_ips = _resolve_smtp_host(smtp_server, smtp_port)
+    logger.info(
+        "[email] smtp_attempt start "
+        f"server={smtp_server} port={smtp_port} security={smtp_security} timeout={smtp_timeout} "
+        f"resolved_ips={resolved_ips}"
+    )
+
+    if smtp_security == "ssl":
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL(
+            smtp_server,
+            smtp_port,
+            timeout=smtp_timeout,
+            context=context,
+        ) as server:
+            server.login(address, password)
+            failed = server.send_message(msg)
+    else:
+        with smtplib.SMTP(smtp_server, smtp_port, timeout=smtp_timeout) as server:
+            if smtp_security == "starttls":
+                server.starttls(context=ssl.create_default_context())
+            server.login(address, password)
+            failed = server.send_message(msg)
+
+    took_ms = int((time.monotonic() - start) * 1000)
+    logger.info(
+        "[email] smtp_attempt done "
+        f"server={smtp_server} port={smtp_port} security={smtp_security} duration_ms={took_ms}"
+    )
+
+    return {"failed": failed, "duration_ms": took_ms}
+
+
+def _deliver_message(msg: MIMEMultipart, to_email: str) -> None:
+    """Centralized send logic with timeout fallback and rich logging."""
     address = env.get("EMAIL_ADDRESS", "")
     password = env.get("EMAIL_PASSWORD", "")
     smtp_server = env.get("SMTP_SERVER", "smtp.gmail.com")
@@ -42,6 +97,63 @@ def send_eta_notification(
     if not address or not password:
         raise RuntimeError("EMAIL_ADDRESS and EMAIL_PASSWORD must be set")
 
+    logger.info(
+        "[email] delivery_config "
+        f"to={to_email} from={address} server={smtp_server} port={smtp_port} "
+        f"security={smtp_security} timeout={smtp_timeout}"
+    )
+
+    try:
+        result = _send_via_smtp(
+            msg=msg,
+            address=address,
+            password=password,
+            smtp_server=smtp_server,
+            smtp_port=smtp_port,
+            smtp_timeout=smtp_timeout,
+            smtp_security=smtp_security,
+        )
+    except TimeoutError as exc:
+        logger.error(
+            "[email] smtp_timeout "
+            f"server={smtp_server} port={smtp_port} security={smtp_security} err={exc!r}"
+        )
+        if smtp_security == "starttls" and smtp_port == 587:
+            logger.warning(
+                f"[email] smtp_fallback switching to implicit SSL server={smtp_server} port=465"
+            )
+            result = _send_via_smtp(
+                msg=msg,
+                address=address,
+                password=password,
+                smtp_server=smtp_server,
+                smtp_port=465,
+                smtp_timeout=smtp_timeout,
+                smtp_security="ssl",
+            )
+        else:
+            raise
+    except Exception as exc:
+        logger.error(
+            "[email] smtp_send_failed "
+            f"server={smtp_server} port={smtp_port} security={smtp_security} err={exc!r}"
+        )
+        raise
+
+    failed = result["failed"]
+    if failed:
+        raise RuntimeError("SMTP rejected recipients: " + str(failed))
+
+
+def send_eta_notification(
+    to_email: str,
+    vessel_name: str,
+    shipment_ref: str | None,
+    old_eta: str | None,
+    new_eta: str | None,
+    delay_days: int,
+) -> None:
+    """Send an ETA change notification email via SMTP."""
     old_str = _format_eta(old_eta)
     new_str = _format_eta(new_eta)
     delay_text = f"+{delay_days} Tage" if delay_days > 0 else f"{delay_days} Tage"
@@ -50,6 +162,12 @@ def send_eta_notification(
     subject = f"ETA-Aenderung: {vessel_name}"
     if shipment_ref:
         subject += f" ({shipment_ref})"
+
+    address = env.get("EMAIL_ADDRESS", "")
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = address
+    msg["To"] = to_email
 
     html_body = f"""\
 <html>
@@ -85,59 +203,23 @@ def send_eta_notification(
   </p>
 </body>
 </html>"""
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = address
-    msg["To"] = to_email
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    try:
-        if smtp_security == "ssl":
-            with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=smtp_timeout) as server:
-                server.login(address, password)
-                failed = server.send_message(msg)
-        else:
-            with smtplib.SMTP(smtp_server, smtp_port, timeout=smtp_timeout) as server:
-                if smtp_security == "starttls":
-                    server.starttls()
-                server.login(address, password)
-                failed = server.send_message(msg)
-    except TimeoutError:
-        # Common fallback for providers that work better via implicit TLS.
-        if smtp_security == "starttls" and smtp_port == 587:
-            with smtplib.SMTP_SSL(smtp_server, 465, timeout=smtp_timeout) as server:
-                server.login(address, password)
-                failed = server.send_message(msg)
-        else:
-            raise
-
-    if failed:
-        raise RuntimeError("SMTP rejected recipients: " + str(failed))
-
+    _deliver_message(msg, to_email)
     logger.info(f"[email] ETA notification sent to {to_email} for {vessel_name}")
 
 
 def send_test_notification(to_email: str) -> None:
     """Send a simple test email to verify SMTP delivery."""
     address = env.get("EMAIL_ADDRESS", "")
-    password = env.get("EMAIL_PASSWORD", "")
-    smtp_server = env.get("SMTP_SERVER", "smtp.gmail.com")
-    smtp_port = int(env.get("SMTP_PORT", "587"))
-    smtp_timeout = int(env.get("SMTP_TIMEOUT", "10"))
-    smtp_security = env.get("SMTP_SECURITY", "starttls").strip().lower()
-
-    if not address or not password:
-        raise RuntimeError("EMAIL_ADDRESS and EMAIL_PASSWORD must be set")
-
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = "ETA Watchlist Test Email"
+    msg["Subject"] = "Shipscoper Test Email"
     msg["From"] = address
     msg["To"] = to_email
     msg.attach(
         MIMEText(
             (
-                "Dies ist eine Test-E-Mail aus ETA Sea Tracker.\n\n"
+                "Dies ist eine Test-E-Mail aus Shipscoper by Tim Kimmich.\n\n"
                 "Wenn du diese Nachricht siehst, funktioniert der E-Mail-Versand."
             ),
             "plain",
@@ -145,26 +227,5 @@ def send_test_notification(to_email: str) -> None:
         )
     )
 
-    try:
-        if smtp_security == "ssl":
-            with smtplib.SMTP_SSL(smtp_server, smtp_port, timeout=smtp_timeout) as server:
-                server.login(address, password)
-                failed = server.send_message(msg)
-        else:
-            with smtplib.SMTP(smtp_server, smtp_port, timeout=smtp_timeout) as server:
-                if smtp_security == "starttls":
-                    server.starttls()
-                server.login(address, password)
-                failed = server.send_message(msg)
-    except TimeoutError:
-        if smtp_security == "starttls" and smtp_port == 587:
-            with smtplib.SMTP_SSL(smtp_server, 465, timeout=smtp_timeout) as server:
-                server.login(address, password)
-                failed = server.send_message(msg)
-        else:
-            raise
-
-    if failed:
-        raise RuntimeError("SMTP rejected recipients: " + str(failed))
-
+    _deliver_message(msg, to_email)
     logger.info(f"[email] Test notification sent to {to_email}")
