@@ -113,6 +113,16 @@ export default async function RootLayout({
                   Watchlist
                 </a>
                 <a
+                  href="/sendungen"
+                  style={{
+                    color: 'var(--header-link)',
+                    textDecoration: 'none',
+                    fontSize: '14px',
+                  }}
+                >
+                  Sendungen
+                </a>
+                <a
                   href="/schedule-search"
                   style={{
                     color: 'var(--header-link)',

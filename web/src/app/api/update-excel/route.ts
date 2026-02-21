@@ -25,12 +25,13 @@ async function autoAssignShipmentsFromUpload(params: {
   fileBuffer: Buffer;
   vesselCol: string;
   shipmentCol: string;
+  containerCol?: string;
 }): Promise<{ updatedCount: number; skippedConflicts: number }> {
   const workbook = XLSX.read(params.fileBuffer, { type: 'buffer' });
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
 
-  const assignmentByVessel = new Map<string, { vesselName: string; refs: Set<string> }>();
+  const assignmentByVessel = new Map<string, { vesselName: string; refs: Set<string>; containers: Set<string> }>();
   for (const row of rows) {
     const vesselRaw = String(row[params.vesselCol] ?? '').trim();
     if (!vesselRaw) continue;
@@ -42,10 +43,16 @@ async function autoAssignShipmentsFromUpload(params: {
     const existing = assignmentByVessel.get(normalized) ?? {
       vesselName: vesselRaw,
       refs: new Set<string>(),
+      containers: new Set<string>(),
     };
 
     for (const ref of refs) {
       existing.refs.add(ref);
+    }
+
+    if (params.containerCol) {
+      const containerRaw = String(row[params.containerCol] ?? '').trim();
+      if (containerRaw) existing.containers.add(containerRaw);
     }
 
     assignmentByVessel.set(normalized, existing);
@@ -60,7 +67,7 @@ async function autoAssignShipmentsFromUpload(params: {
 
   const { data: existingRows, error: existingError } = await admin
     .from('vessel_watches')
-    .select('id, vessel_name_normalized, shipment_reference')
+    .select('id, vessel_name_normalized, shipment_reference, container_reference')
     .eq('user_id', params.userId);
 
   if (existingError) {
@@ -68,16 +75,14 @@ async function autoAssignShipmentsFromUpload(params: {
     return { updatedCount: 0, skippedConflicts: 0 };
   }
 
-  const existingByVessel = new Map<string, { id: string; refs: Set<string> }>();
+  const existingByVessel = new Map<string, { id: string; refs: Set<string>; containers: Set<string> }>();
   const ownerByShipmentRef = new Map<string, string>();
   for (const row of existingRows ?? []) {
     const key = String(row.vessel_name_normalized);
     const refs = new Set(parseShipmentRefs(row.shipment_reference));
+    const containers = new Set(parseShipmentRefs(row.container_reference));
     if (assignmentByVessel.has(key) && !existingByVessel.has(key)) {
-      existingByVessel.set(key, {
-        id: String(row.id),
-        refs,
-      });
+      existingByVessel.set(key, { id: String(row.id), refs, containers });
     }
     for (const ref of refs) {
       ownerByShipmentRef.set(ref, key);
@@ -99,11 +104,13 @@ async function autoAssignShipmentsFromUpload(params: {
       }
     }
   }
+
   const inserts: Array<{
     user_id: string;
     vessel_name: string;
     vessel_name_normalized: string;
     shipment_reference: string;
+    container_reference: string | null;
     notification_enabled: boolean;
   }> = [];
 
@@ -116,6 +123,10 @@ async function autoAssignShipmentsFromUpload(params: {
     });
     if (refs.length === 0) continue;
 
+    const containerRef = payload.containers.size > 0
+      ? Array.from(payload.containers).join(', ')
+      : null;
+
     const existing = existingByVessel.get(normalized);
 
     if (!existing) {
@@ -124,18 +135,30 @@ async function autoAssignShipmentsFromUpload(params: {
         vessel_name: payload.vesselName,
         vessel_name_normalized: normalized,
         shipment_reference: refs.join(', '),
+        container_reference: containerRef,
         notification_enabled: false,
       });
       continue;
     }
 
-    const merged = new Set(existing.refs);
-    for (const ref of refs) merged.add(ref);
-    if (merged.size === existing.refs.size) continue;
+    const mergedRefs = new Set(existing.refs);
+    for (const ref of refs) mergedRefs.add(ref);
+    const mergedContainers = new Set(existing.containers);
+    if (containerRef) {
+      for (const c of payload.containers) mergedContainers.add(c);
+    }
+
+    const refsChanged = mergedRefs.size !== existing.refs.size;
+    const containersChanged = mergedContainers.size !== existing.containers.size;
+    if (!refsChanged && !containersChanged) continue;
+
+    const updatePayload: Record<string, string | null> = {};
+    if (refsChanged) updatePayload.shipment_reference = Array.from(mergedRefs).join(', ');
+    if (containersChanged) updatePayload.container_reference = Array.from(mergedContainers).join(', ');
 
     const { error: updateError } = await admin
       .from('vessel_watches')
-      .update({ shipment_reference: Array.from(merged).join(', ') })
+      .update(updatePayload)
       .eq('id', existing.id);
 
     if (!updateError) {
@@ -272,6 +295,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const etaCols = formData.getAll('etaCols').map(String).filter(Boolean);
     const terminalCol = (formData.get('terminalCol') as string | null) || undefined;
     const customsCol = (formData.get('customsCol') as string | null) || undefined;
+    const containerCol = (formData.get('containerCol') as string | null) || undefined;
 
     if (!vesselCol || etaCols.length === 0) {
       return NextResponse.json(
@@ -371,6 +395,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         fileBuffer,
         vesselCol,
         shipmentCol,
+        containerCol,
       });
       autoAssignedCount = assignResult.updatedCount;
       autoAssignSkippedConflicts = assignResult.skippedConflicts;

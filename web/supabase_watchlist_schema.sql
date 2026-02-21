@@ -9,13 +9,17 @@ CREATE TABLE IF NOT EXISTS vessel_watches (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   vessel_name TEXT NOT NULL,
   vessel_name_normalized TEXT NOT NULL,
-  shipment_reference TEXT, -- Optional: User's reference (S00123456)
+  shipment_reference TEXT, -- Optional: User's reference (S00123456), comma-separated
+  container_reference TEXT, -- Optional: Container numbers, comma-separated (e.g. MSCU1234567)
   last_known_eta TIMESTAMPTZ,
   notification_enabled BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   last_notified_at TIMESTAMPTZ,
   UNIQUE(user_id, vessel_name_normalized, shipment_reference)
 );
+
+-- Migration: Add container_reference column (run once in Supabase SQL editor if table already exists)
+-- ALTER TABLE vessel_watches ADD COLUMN IF NOT EXISTS container_reference TEXT;
 
 CREATE INDEX idx_vessel_watches_user_id ON vessel_watches(user_id);
 CREATE INDEX idx_vessel_watches_normalized ON vessel_watches(vessel_name_normalized);

@@ -7,6 +7,7 @@ interface Watch {
   vessel_name: string;
   vessel_name_normalized: string;
   shipment_reference: string | null;
+  container_reference: string | null;
   last_known_eta: string | null;
   notification_enabled: boolean;
   created_at: string;
@@ -26,6 +27,7 @@ export default function WatchlistPage() {
   const [vesselName, setVesselName] = useState('');
   const [adding, setAdding] = useState(false);
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
+  const [testEmailMessage, setTestEmailMessage] = useState('');
   const [watchSearch, setWatchSearch] = useState('');
 
   const [suggestions, setSuggestions] = useState<VesselSuggestion[]>([]);
@@ -78,7 +80,8 @@ export default function WatchlistPage() {
     if (!query) return true;
     return (
       watch.vessel_name.toLowerCase().includes(query) ||
-      (watch.shipment_reference || '').toLowerCase().includes(query)
+      (watch.shipment_reference || '').toLowerCase().includes(query) ||
+      (watch.container_reference || '').toLowerCase().includes(query)
     );
   });
 
@@ -151,6 +154,7 @@ export default function WatchlistPage() {
 
   const handleSendTestEmail = async () => {
     setSendingTestEmail(true);
+    setTestEmailMessage('');
     setError('');
     try {
       const res = await fetch('/api/watchlist/test-email', { method: 'POST' });
@@ -158,7 +162,8 @@ export default function WatchlistPage() {
       if (!res.ok) throw new Error(json.error || 'Test email failed');
 
       const target = typeof json.email === 'string' ? json.email : 'deine hinterlegte E-Mail';
-      alert(`Test-E-Mail erfolgreich versendet an ${target}`);
+      setTestEmailMessage(`Test-E-Mail wird gesendet an ${target} — prüfe dein Postfach in ~30 Sekunden.`);
+      setTimeout(() => setTestEmailMessage(''), 8000);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Test email failed');
     } finally {
@@ -196,6 +201,9 @@ export default function WatchlistPage() {
         >
           {sendingTestEmail ? 'Sende Test-E-Mail...' : 'Test-E-Mail senden'}
         </button>
+        {testEmailMessage && (
+          <div style={styles.testEmailMsg}>{testEmailMessage}</div>
+        )}
       </div>
 
       <form onSubmit={handleAdd} style={styles.form}>
@@ -280,6 +288,7 @@ export default function WatchlistPage() {
               <tr>
                 <th style={styles.th}>Vessel</th>
                 <th style={styles.th}>Sendung</th>
+                <th style={styles.th}>Container</th>
                 <th style={styles.th}>Letzte ETA</th>
                 <th style={styles.th}>Benachrichtigung</th>
                 <th style={styles.th}>Hinzugefügt</th>
@@ -291,6 +300,7 @@ export default function WatchlistPage() {
                 <tr key={watch.id}>
                   <td style={{ ...styles.td, fontWeight: 600 }}>{watch.vessel_name}</td>
                   <td style={styles.td}>{watch.shipment_reference || '-'}</td>
+                  <td style={styles.td}>{watch.container_reference || '-'}</td>
                   <td style={styles.td}>{formatEta(watch.last_known_eta)}</td>
                   <td style={styles.td}>
                     <button
@@ -405,6 +415,15 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '13px',
     fontWeight: 600,
     cursor: 'pointer',
+  },
+  testEmailMsg: {
+    marginTop: '8px',
+    fontSize: '13px',
+    color: '#0369a1',
+    backgroundColor: '#e0f2fe',
+    border: '1px solid #bae6fd',
+    borderRadius: '6px',
+    padding: '8px 12px',
   },
   error: {
     padding: '12px 16px',

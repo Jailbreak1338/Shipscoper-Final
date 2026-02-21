@@ -39,11 +39,13 @@ export default function ScheduleSearchTable({
   rows,
   initiallyWatched,
   initialShipmentByVessel,
+  initialContainerByVessel,
   initialSnrFilter,
 }: {
   rows: SearchRow[];
   initiallyWatched: string[];
   initialShipmentByVessel: ShipmentMap;
+  initialContainerByVessel: ShipmentMap;
   initialSnrFilter?: string;
 }) {
   const [watchedSet, setWatchedSet] = useState<Set<string>>(
@@ -51,6 +53,8 @@ export default function ScheduleSearchTable({
   );
   const [shipmentByVessel, setShipmentByVessel] =
     useState<ShipmentMap>(initialShipmentByVessel);
+  const [containerByVessel] =
+    useState<ShipmentMap>(initialContainerByVessel);
   const [adding, setAdding] = useState<Record<string, boolean>>({});
   const [flash, setFlash] = useState('');
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null);
@@ -231,13 +235,14 @@ export default function ScheduleSearchTable({
               <th style={styles.th}>Terminal</th>
               <th style={styles.th}>Scraped At</th>
               <th style={styles.th}>S-Nr. (Watchlist)</th>
+              <th style={styles.th}>Container</th>
               <th style={styles.th}>Aktion</th>
             </tr>
           </thead>
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={10} style={{ ...styles.td, textAlign: 'center', color: 'var(--text-secondary)' }}>
+                <td colSpan={11} style={{ ...styles.td, textAlign: 'center', color: 'var(--text-secondary)' }}>
                   Keine Daten gefunden
                 </td>
               </tr>
@@ -250,6 +255,7 @@ export default function ScheduleSearchTable({
                 const currentInput = shipmentInput[key] ?? '';
                 const suggestions = shipmentSuggestions[key] ?? [];
                 const assigned = shipmentByVessel[key] ?? [];
+                const containers = containerByVessel[key] ?? [];
 
                 return (
                   <tr key={`${row.vessel_name}-${row.source}-${row.scraped_at}-${i}`}>
@@ -262,6 +268,7 @@ export default function ScheduleSearchTable({
                     <td style={styles.td}>{row.terminal ?? '-'}</td>
                     <td style={styles.td}>{formatDateTime(row.scraped_at)}</td>
                     <td style={styles.td}>{assigned.length > 0 ? assigned.join(', ') : '-'}</td>
+                    <td style={styles.td}>{containers.length > 0 ? containers.join(', ') : '-'}</td>
                     <td style={styles.td}>
                       <button
                         type="button"

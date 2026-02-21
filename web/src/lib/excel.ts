@@ -26,6 +26,16 @@ const CUSTOMS_CANDIDATES = [
   'custom',
   'cleared',
 ];
+const CONTAINER_CANDIDATES = [
+  'container',
+  'containernr',
+  'containerid',
+  'containernummer',
+  'cntrno',
+  'contnr',
+  'cont',
+  'kontnr',
+];
 
 export interface ColumnMapping {
   shipmentCol?: string;
@@ -33,6 +43,7 @@ export interface ColumnMapping {
   etaCols: string[];
   terminalCol?: string;
   customsCol?: string;
+  containerCol?: string;
 }
 
 export interface DetectedColumns {
@@ -42,6 +53,7 @@ export interface DetectedColumns {
   etaCols: string[];
   terminalCol: string | null;
   customsCol: string | null;
+  containerCol: string | null;
   allColumns: string[];
 }
 
@@ -105,6 +117,7 @@ export function detectColumns(headers: string[]): DetectedColumns {
   const vesselCol = findByCandidates(VESSEL_CANDIDATES);
   const terminalCol = findByCandidates(TERMINAL_CANDIDATES);
   const customsCol = findByCandidates(CUSTOMS_CANDIDATES);
+  const containerCol = findByCandidates(CONTAINER_CANDIDATES);
 
   // Find ALL columns that match ETA patterns
   const etaCols: string[] = [];
@@ -123,6 +136,7 @@ export function detectColumns(headers: string[]): DetectedColumns {
     etaCols,
     terminalCol,
     customsCol,
+    containerCol,
     allColumns: headers,
   };
 }

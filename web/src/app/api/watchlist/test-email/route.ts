@@ -45,60 +45,9 @@ export async function POST() {
       );
     }
 
-    const jobId = typeof body.job_id === 'string' ? body.job_id : null;
-    if (!jobId) {
-      return NextResponse.json(
-        { error: 'Scraper did not return a test-email job id' },
-        { status: 502 }
-      );
-    }
-
-    // Poll scraper for actual SMTP send result so frontend gets real status.
-    const maxAttempts = 15; // ~30 seconds total (SMTP preflight + fallback can take ~28s)
-    for (let i = 0; i < maxAttempts; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      const statusRes = await fetch(
-        `${scraperUrl}/webhook/test-email-status/${jobId}`,
-        {
-          method: 'GET',
-          headers: { 'X-Webhook-Secret': webhookSecret },
-          cache: 'no-store',
-        }
-      );
-
-      const statusBody = await statusRes.json().catch(() => ({}));
-      if (!statusRes.ok) {
-        return NextResponse.json(
-          { error: statusBody.error || `Status check failed (${statusRes.status})` },
-          { status: 502 }
-        );
-      }
-
-      if (statusBody.status === 'sent') {
-        return NextResponse.json({ success: true, email: session.user.email });
-      }
-
-      if (statusBody.status === 'failed') {
-        return NextResponse.json(
-          {
-            error:
-              typeof statusBody.error === 'string'
-                ? statusBody.error.split('\n').slice(-4).join('\n')
-                : 'SMTP send failed',
-          },
-          { status: 502 }
-        );
-      }
-    }
-
-    return NextResponse.json(
-      {
-        error:
-          'Test email still running after 30s. Check Railway logs for [test-email] entries.',
-      },
-      { status: 504 }
-    );
+    // Fire-and-forget: scraper accepted the job, email will be sent in background (~30s).
+    // Return immediately to avoid Vercel function timeout issues.
+    return NextResponse.json({ queued: true, email: session.user.email });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });

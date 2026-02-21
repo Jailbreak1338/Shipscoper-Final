@@ -8,6 +8,7 @@ interface DetectedColumns {
   etaCol: string | null;
   etaCols: string[];
   customsCol: string | null;
+  containerCol: string | null;
   allColumns: string[];
 }
 
@@ -43,6 +44,7 @@ export default function EtaUpdaterPage() {
   const [vesselCol, setVesselCol] = useState('');
   const [etaCol, setEtaCol] = useState('');
   const [customsCol, setCustomsCol] = useState('');
+  const [containerCol, setContainerCol] = useState('');
   const [summary, setSummary] = useState<UpdateSummary | null>(null);
   const [jobId, setJobId] = useState('');
   const [error, setError] = useState('');
@@ -144,6 +146,7 @@ export default function EtaUpdaterPage() {
       setVesselCol(det.vesselCol || '');
       setEtaCol(det.etaCol || det.etaCols[0] || '');
       setCustomsCol(det.customsCol || '');
+      setContainerCol(det.containerCol || '');
       setStep('columns');
     } catch {
       setError('Failed to upload file. Please try again.');
@@ -185,6 +188,9 @@ export default function EtaUpdaterPage() {
       if (customsCol) {
         formData.append('customsCol', customsCol);
       }
+      if (containerCol) {
+        formData.append('containerCol', containerCol);
+      }
 
       const res = await fetch('/api/update-excel', {
         method: 'POST',
@@ -218,6 +224,7 @@ export default function EtaUpdaterPage() {
     setVesselCol('');
     setEtaCol('');
     setCustomsCol('');
+    setContainerCol('');
     setSummary(null);
     setJobId('');
     setError('');
@@ -332,6 +339,25 @@ export default function EtaUpdaterPage() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Container-Spalte (optional)</label>
+              <select
+                style={styles.select}
+                value={containerCol}
+                onChange={(e) => setContainerCol(e.target.value)}
+              >
+                <option value="">-- Keine --</option>
+                {detected.allColumns.map((col) => (
+                  <option key={col} value={col}>
+                    {col}
+                  </option>
+                ))}
+              </select>
+              <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#777' }}>
+                Container-Nummern werden zusammen mit der S-Nr. in der Watchlist gespeichert.
+              </p>
             </div>
 
             <div style={styles.formGroup}>

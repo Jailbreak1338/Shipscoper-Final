@@ -195,7 +195,7 @@ export default async function ScheduleSearchPage({
       .maybeSingle(),
     supabase
       .from('vessel_watches')
-      .select('vessel_name_normalized, shipment_reference')
+      .select('vessel_name_normalized, shipment_reference, container_reference')
       .eq('user_id', session.user.id),
   ]);
 
@@ -249,25 +249,25 @@ export default async function ScheduleSearchPage({
   const watchedRows = (watchedRes.data ?? []) as Array<{
     vessel_name_normalized: string;
     shipment_reference: string | null;
+    container_reference: string | null;
   }>;
 
-  const shipmentByVessel = watchedRows.reduce<Record<string, string[]>>((acc, row) => {
-    if (!row.shipment_reference) return acc;
-    const values = row.shipment_reference
-     .split(/[;,\n]/)
-      .map((v) => v.trim())
-      .filter(Boolean);
-
-    if (values.length === 0) return acc;
-    const existing = acc[row.vessel_name_normalized] ?? [];
-    for (const value of values) {
-      if (!existing.includes(value)) {
-        existing.push(value);
+  const buildByVessel = (rows: typeof watchedRows, field: 'shipment_reference' | 'container_reference'): Record<string, string[]> =>
+    rows.reduce<Record<string, string[]>>((acc, row) => {
+      const raw = row[field];
+      if (!raw) return acc;
+      const values = raw.split(/[;,\n]/).map((v) => v.trim()).filter(Boolean);
+      if (values.length === 0) return acc;
+      const existing = acc[row.vessel_name_normalized] ?? [];
+      for (const value of values) {
+        if (!existing.includes(value)) existing.push(value);
       }
-    }
-    acc[row.vessel_name_normalized] = existing;
-    return acc;
-  }, {});
+      acc[row.vessel_name_normalized] = existing;
+      return acc;
+    }, {});
+
+  const shipmentByVessel = buildByVessel(watchedRows, 'shipment_reference');
+  const containerByVessel = buildByVessel(watchedRows, 'container_reference');
   const lastRun = lastRunRes.data;
   const lastRunText = lastRun
     ? `${formatDateTime(lastRun.started_at)} (${lastRun.status})`
@@ -347,6 +347,7 @@ export default async function ScheduleSearchPage({
         rows={rows}
         initiallyWatched={watchedRows.map((r) => r.vessel_name_normalized)}
         initialShipmentByVessel={shipmentByVessel}
+        initialContainerByVessel={containerByVessel}
         initialSnrFilter={snr}
       />
 
