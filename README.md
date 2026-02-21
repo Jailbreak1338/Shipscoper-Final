@@ -189,3 +189,123 @@ SMTP_SERVER=smtp.gmail.com
 | Playwright not found | `playwright install chromium` ausführen |
 | Email auth failed | App-Passwort in Gmail generieren (Sicherheit > App-Passwörter) |
 | Zu viele/wenige Matches | `fuzzy_match_threshold` in config.yaml anpassen (höher = strenger) |
+
+---
+
+## Container Tracking
+
+Automatisches Status-Tracking für einzelne Container bei HHLA und Eurogate (Playwright-basiert, TypeScript Worker).
+
+### Wie es funktioniert
+
+1. Alle `vessel_watches`-Einträge mit `notification_enabled=true` **und** gesetzter `container_reference` werden geladen.
+2. Pro Container wird HHLA oder Eurogate mit einem echten Browser gescrapt.
+3. Statusänderungen (Hash-Vergleich) werden in `container_latest_status`, `container_status_events` und `container_status_notifications` gespeichert.
+4. Beim ersten Erreichen von `DISCHARGED`, `READY` oder `DELIVERED_OUT` wird eine E-Mail gesendet (idempotent via Unique-Constraint in DB).
+
+### Status-Modell
+
+| Normalisierter Status | Bedeutung |
+|---|---|
+| `PREANNOUNCED` | Vorgemeldet / Avisiert |
+| `DISCHARGED` | Entladeauftrag erledigt (HHLA) |
+| `READY` | Bereit zur Verladung (HHLA) |
+| `DELIVERED_OUT` | Ausgeliefert (HHLA rawText oder Eurogate Bestandsstatus) |
+
+Priorität bei mehreren zutreffenden Bedingungen: `DELIVERED_OUT > READY > DISCHARGED > PREANNOUNCED`
+
+### Setup
+
+#### 1. Supabase Migration ausführen
+
+Im Supabase SQL-Editor:
+```sql
+-- Vollständige Migration: migrations/20260221_container_tracking.sql
+```
+Datei kopieren und im Supabase SQL-Editor ausführen. Idempotent (IF NOT EXISTS).
+
+#### 2. Node.js-Abhängigkeiten installieren
+
+```bash
+# Im Repo-Root (nicht in web/)
+npm install
+
+# Playwright-Browser herunterladen (einmalig)
+npx playwright install chromium
+```
+
+#### 3. ENV-Variablen konfigurieren
+
+Zur `.env`-Datei (Root) hinzufügen:
+
+```env
+# ── Supabase (shared mit Python-Scraper) ───────────────
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+
+# ── E-Mail Provider ────────────────────────────────────
+EMAIL_PROVIDER=resend           # resend | ses | none
+EMAIL_FROM=Shipscoper <noreply@example.com>
+
+# Resend (Standard)
+RESEND_API_KEY=re_...
+
+# Amazon SES (optional, nur wenn EMAIL_PROVIDER=ses)
+SES_REGION=eu-central-1
+SES_ACCESS_KEY_ID=AKIA...
+SES_SECRET_ACCESS_KEY=...
+
+# ── Optionaler Make.com Webhook ────────────────────────
+MAKE_WEBHOOK_URL=https://hook.eu1.make.com/...
+
+# ── Provider URLs (optional, bei geänderten Portalen) ──
+HHLA_CONTAINER_URL=https://coast.hhla.de/containerauskunft
+EUROGATE_CONTAINER_URL=https://www.eurogate.eu/...  # Richtigen URL eintragen!
+
+# ── Job-Parameter ──────────────────────────────────────
+MAX_CONCURRENCY=2               # Gleichzeitige Browser-Pages (Standard: 2)
+```
+
+#### 4. Container-Quelle in vessel_watches setzen (optional)
+
+```sql
+-- Für alle Einträge, die ausschließlich bei HHLA sind:
+UPDATE vessel_watches SET container_source = 'HHLA'
+WHERE vessel_name_normalized IN ('...', '...');
+
+-- Für Eurogate:
+UPDATE vessel_watches SET container_source = 'EUROGATE' WHERE ...;
+
+-- NULL oder 'AUTO' = HHLA zuerst, dann Eurogate als Fallback
+```
+
+### Job ausführen
+
+```bash
+# Einmalig / manuell
+npm run check-containers
+
+# Mit sichtbarem Browser (Debug)
+HEADLESS=false npm run check-containers
+
+# Als Cron auf Railway (neuer Service oder cron.json):
+# Befehl: npm run check-containers
+# Interval: alle 30 Minuten
+```
+
+### Debug-Tipps
+
+| Problem | Lösung |
+|---|---|
+| HHLA: Accordion öffnet nicht | `HEADLESS=false` → Browser beobachten; ggf. Locator in `src/providers/hhla.ts` anpassen |
+| Eurogate: Container nicht gefunden | Richtigen `EUROGATE_CONTAINER_URL` in `.env` setzen (Portal-URL konfigurierbar) |
+| Keine E-Mail erhalten | `EMAIL_PROVIDER=none` → Logs prüfen; dann Resend Dashboard für Delivery-Status |
+| Duplicate-Key Error | Normal — DB-UNIQUE verhindert doppelte Notifications (idempotent) |
+| `@aws-sdk/client-ses not found` | Nur nötig wenn `EMAIL_PROVIDER=ses`: `npm install @aws-sdk/client-ses` |
+| Zu langsam | `MAX_CONCURRENCY=4` (Vorsicht: mehr RAM/CPU) |
+
+### Rate Limits
+
+- **HHLA (coast.hhla.de)**: Kein bekanntes hartes Limit. Bei >20 Containern Wartezeit einplanen.
+- **Eurogate**: Portal kann bei zu vielen Requests eine CAPTCHA-Seite zeigen. Max 2 concurrent empfohlen.
+- **Resend Free Tier**: 100 E-Mails/Tag, 3.000/Monat. Für mehr: kostenpflichtiger Plan.
