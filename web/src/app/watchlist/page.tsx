@@ -163,7 +163,32 @@ export default function WatchlistPage() {
 
       const target = typeof json.email === 'string' ? json.email : 'deine hinterlegte E-Mail';
       setTestEmailMessage(`Test-E-Mail wird gesendet an ${target} — prüfe dein Postfach in ~30 Sekunden.`);
-      setTimeout(() => setTestEmailMessage(''), 8000);
+
+      // Check actual send status after 5s (scraper runs in background)
+      const jobId = typeof json.jobId === 'string' ? json.jobId : null;
+      if (jobId) {
+        setTimeout(async () => {
+          try {
+            const statusRes = await fetch(`/api/watchlist/test-email-status?jobId=${encodeURIComponent(jobId)}`);
+            const statusJson = await statusRes.json();
+            if (statusJson.status === 'sent') {
+              setTestEmailMessage(`E-Mail erfolgreich gesendet an ${target}. Bitte auch Spam-Ordner prüfen.`);
+              setTimeout(() => setTestEmailMessage(''), 10000);
+            } else if (statusJson.status === 'failed') {
+              const errMsg = typeof statusJson.error === 'string'
+                ? statusJson.error.split('\n').slice(-3).join(' ')
+                : 'SMTP-Fehler';
+              setError(`Test-E-Mail fehlgeschlagen: ${errMsg}`);
+              setTestEmailMessage('');
+            }
+            // status 'running' or 'unknown' → keep the "wird gesendet" message
+          } catch {
+            // ignore status check errors, keep the "wird gesendet" message
+          }
+        }, 5000);
+      } else {
+        setTimeout(() => setTestEmailMessage(''), 8000);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Test email failed');
     } finally {

@@ -47,7 +47,8 @@ export async function POST() {
 
     // Fire-and-forget: scraper accepted the job, email will be sent in background (~30s).
     // Return immediately to avoid Vercel function timeout issues.
-    return NextResponse.json({ queued: true, email: session.user.email });
+    const jobId = typeof body.job_id === 'string' ? body.job_id : null;
+    return NextResponse.json({ queued: true, email: session.user.email, jobId });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: message }, { status: 500 });

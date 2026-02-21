@@ -111,6 +111,7 @@ async function autoAssignShipmentsFromUpload(params: {
     vessel_name_normalized: string;
     shipment_reference: string;
     container_reference: string | null;
+    last_known_eta: string | null;
     notification_enabled: boolean;
   }> = [];
 
@@ -136,6 +137,7 @@ async function autoAssignShipmentsFromUpload(params: {
         vessel_name_normalized: normalized,
         shipment_reference: refs.join(', '),
         container_reference: containerRef,
+        last_known_eta: null, // filled in batch below
         notification_enabled: false,
       });
       continue;
@@ -169,6 +171,17 @@ async function autoAssignShipmentsFromUpload(params: {
   }
 
   if (inserts.length > 0) {
+    // Batch-lookup current ETAs from latest_schedule for all new entries
+    const normalizedNames = inserts.map((ins) => ins.vessel_name_normalized);
+    const { data: schedules } = await admin
+      .from('latest_schedule')
+      .select('name_normalized, eta')
+      .in('name_normalized', normalizedNames);
+    const etaMap = new Map((schedules ?? []).map((s) => [s.name_normalized as string, s.eta as string | null]));
+    for (const ins of inserts) {
+      ins.last_known_eta = etaMap.get(ins.vessel_name_normalized) ?? null;
+    }
+
     const { error: insertError } = await admin
       .from('vessel_watches')
       .insert(inserts);

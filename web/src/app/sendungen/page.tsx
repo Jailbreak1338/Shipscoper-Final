@@ -72,7 +72,7 @@ export default function SendungenPage() {
                 <th style={styles.th}>Container</th>
                 <th style={styles.th}>Vessel</th>
                 <th style={styles.th}>ETA</th>
-                <th style={styles.th}></th>
+                <th style={styles.th}>Aktionen</th>
               </tr>
             </thead>
             <tbody>
@@ -83,9 +83,14 @@ export default function SendungenPage() {
                   <td style={styles.td}>{s.vessel_name}</td>
                   <td style={styles.td}>{formatEta(s.last_known_eta)}</td>
                   <td style={styles.td}>
-                    <button type="button" style={styles.btnDelete} onClick={() => {}}>
-                      Löschen
-                    </button>
+                    <div style={styles.btnGroup}>
+                      <button type="button" style={styles.btnNotify} onClick={() => {}}>
+                        Container-Lösch-Benachrichtigung
+                      </button>
+                      <button type="button" style={styles.btnWatchlist} onClick={() => {}}>
+                        Zur Watchlist hinzufügen
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -161,13 +166,29 @@ const styles: Record<string, CSSProperties> = {
     verticalAlign: 'top',
     color: 'var(--text-primary)',
   },
-  btnDelete: {
-    padding: '4px 12px',
+  btnGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+  },
+  btnNotify: {
+    padding: '4px 10px',
     backgroundColor: 'var(--surface-muted)',
-    color: '#ef4444',
-    border: '1px solid #fecaca',
+    color: '#b45309',
+    border: '1px solid #fde68a',
     borderRadius: '6px',
-    fontSize: '13px',
+    fontSize: '12px',
     cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  btnWatchlist: {
+    padding: '4px 10px',
+    backgroundColor: 'var(--surface-muted)',
+    color: '#1d4ed8',
+    border: '1px solid #bfdbfe',
+    borderRadius: '6px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
   },
 };
