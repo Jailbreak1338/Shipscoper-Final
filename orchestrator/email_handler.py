@@ -2,10 +2,8 @@
 
 import email
 import imaplib
-import smtplib
 from datetime import datetime
 from email import policy
-from email.message import EmailMessage
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -156,34 +154,20 @@ class EmailAutomation:
         attachment["Content-Disposition"] = f'attachment; filename="{excel_path.name}"'
         msg.attach(attachment)
 
-        try:
-            if self.smtp_security == "ssl":
-                with smtplib.SMTP_SSL(self.smtp_server, self.smtp_port, timeout=self.smtp_timeout) as smtp:
-                    smtp.login(self.address, self.password)
-                    smtp.send_message(msg)
-            else:
-                with smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=self.smtp_timeout) as smtp:
-                    if self.smtp_security == "starttls":
-                        smtp.starttls()
-                    smtp.login(self.address, self.password)
-                    smtp.send_message(msg)
-        except TimeoutError:
-            if self.smtp_security == "starttls" and self.smtp_port == 587:
-                with smtplib.SMTP_SSL(self.smtp_server, 465, timeout=self.smtp_timeout) as smtp:
-                    smtp.login(self.address, self.password)
-                    smtp.send_message(msg)
-            else:
-                raise
-
+        from scraper.email_sender import _deliver_message
+        _deliver_message(msg, recipient)
         logger.info(f"[email] Reply sent to {recipient}")
 
-    def mark_as_processed(self, msg_id: bytes):
-        """Mark email as seen on the IMAP server."""
+    def _batch_mark_processed(self, msg_ids: list):
+        """Mark multiple emails as seen in a single IMAP connection."""
+        if not msg_ids:
+            return
         with imaplib.IMAP4_SSL(self.imap_server, self.imap_port) as imap:
             imap.login(self.address, self.password)
             imap.select("INBOX")
-            imap.store(msg_id, "+FLAGS", "\\Seen")
-            logger.info(f"[email] Marked {msg_id} as processed")
+            for msg_id in msg_ids:
+                imap.store(msg_id, "+FLAGS", "\\Seen")
+                logger.info(f"[email] Marked {msg_id} as processed")
 
     def run_email_workflow(self):
         """Run email-triggered full pipeline and reply with fresh report."""
@@ -198,6 +182,7 @@ class EmailAutomation:
         # This is intentionally independent of attachment content.
         summary = run_full()
 
+        processed_ids = []
         for item in emails:
             try:
                 # Archive attachment for traceability only
@@ -219,8 +204,10 @@ class EmailAutomation:
                     summary=summary,
                 )
 
-                # Mark as processed
-                self.mark_as_processed(item["msg_id"])
+                processed_ids.append(item["msg_id"])
 
             except Exception as e:
                 logger.error(f"[email] Failed processing '{item['subject']}': {e}")
+
+        # Mark all successfully processed emails as seen in one IMAP connection
+        self._batch_mark_processed(processed_ids)

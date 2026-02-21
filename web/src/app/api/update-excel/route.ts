@@ -364,17 +364,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       console.error('logUpload failed:', logErr);
     }
     let autoAssignedCount = 0;
-  let autoAssignSkippedConflicts = 0;
-  if (shipmentCol) {
-    const assignResult = await autoAssignShipmentsFromUpload({
+    let autoAssignSkippedConflicts = 0;
+    if (shipmentCol) {
+      const assignResult = await autoAssignShipmentsFromUpload({
         userId: session.user.id,
         fileBuffer,
         vesselCol,
         shipmentCol,
-    });
-    autoAssignedCount = assignResult.updatedCount;
-    autoAssignSkippedConflicts = assignResult.skippedConflicts;
-  }
+      });
+      autoAssignedCount = assignResult.updatedCount;
+      autoAssignSkippedConflicts = assignResult.skippedConflicts;
+    }
 
     revalidatePath('/dashboard');
     revalidatePath('/schedule-search');

@@ -54,7 +54,7 @@ export async function POST() {
     }
 
     // Poll scraper for actual SMTP send result so frontend gets real status.
-    const maxAttempts = 8; // ~16 seconds total
+    const maxAttempts = 15; // ~30 seconds total (SMTP preflight + fallback can take ~28s)
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
@@ -95,7 +95,7 @@ export async function POST() {
     return NextResponse.json(
       {
         error:
-          'Test email still running. Check Railway logs for [test-email] details.',
+          'Test email still running after 30s. Check Railway logs for [test-email] entries.',
       },
       { status: 504 }
     );
