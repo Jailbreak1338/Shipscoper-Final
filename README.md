@@ -12,7 +12,6 @@ Features
 - **Logging** — Loguru mit Rotation und File-Output
 
 Architektur
-
 ```
 eta-automation/
 ├── main.py                    # CLI Entry Point
