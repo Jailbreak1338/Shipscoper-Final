@@ -144,6 +144,74 @@ def test_email_status(job_id: str):
         return jsonify(job), 200
 
 
+_container_jobs: dict = {}
+
+
+def _run_check_containers(job_id: str):
+    """Run checkContainers.ts Node.js job in a background thread."""
+    import subprocess
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    try:
+        result = subprocess.run(
+            ["npx", "tsx", "src/jobs/checkContainers.ts"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            cwd=script_dir,
+        )
+        with _lock:
+            _container_jobs[job_id] = {
+                "status": "done" if result.returncode == 0 else "failed",
+                "stdout": result.stdout[-3000:],
+                "stderr": result.stderr[-1000:],
+                "returncode": result.returncode,
+                "finished_at": datetime.utcnow().isoformat(),
+            }
+        print(f"[check-containers] job {job_id} done (rc={result.returncode})")
+    except Exception as e:
+        with _lock:
+            _container_jobs[job_id] = {
+                "status": "error",
+                "error": str(e),
+                "finished_at": datetime.utcnow().isoformat(),
+            }
+        print(f"[check-containers] job {job_id} error: {e}")
+
+
+@app.route("/webhook/check-containers", methods=["POST"])
+def trigger_check_containers():
+    """Trigger the Node.js container status checker job."""
+    secret = request.headers.get("X-Webhook-Secret", "")
+    if not WEBHOOK_SECRET or secret != WEBHOOK_SECRET:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    job_id = str(uuid.uuid4())
+    with _lock:
+        _container_jobs[job_id] = {
+            "status": "running",
+            "started_at": datetime.utcnow().isoformat(),
+        }
+
+    t = threading.Thread(target=_run_check_containers, args=(job_id,), daemon=True)
+    t.start()
+    return jsonify({"ok": True, "job_id": job_id}), 202
+
+
+@app.route("/webhook/check-containers-status/<job_id>", methods=["GET"])
+def check_containers_status(job_id):
+    """Get the status of a check-containers job."""
+    secret = request.headers.get("X-Webhook-Secret", "")
+    if not WEBHOOK_SECRET or secret != WEBHOOK_SECRET:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    with _lock:
+        job = _container_jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    return jsonify(job), 200
+
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8080"))
     app.run(host="0.0.0.0", port=port)
