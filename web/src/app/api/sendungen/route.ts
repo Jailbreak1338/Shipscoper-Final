@@ -42,16 +42,17 @@ export async function GET() {
 
   if (filtered.length === 0) return NextResponse.json({ sendungen: [] });
 
-  // 3. Batch-load current ETAs from latest_schedule
+  // 3. Batch-load current ETAs + vessel terminal from latest_schedule
   const normalizedNames = [
     ...new Set(filtered.map((w) => w.vessel_name_normalized).filter(Boolean)),
   ];
   const { data: schedules } = await admin
     .from('latest_schedule')
-    .select('name_normalized, eta')
+    .select('name_normalized, eta, terminal')
     .in('name_normalized', normalizedNames);
 
   const etaMap = new Map((schedules ?? []).map((s) => [s.name_normalized, s.eta as string | null]));
+  const vesselTerminalMap = new Map((schedules ?? []).map((s) => [s.name_normalized, s.terminal as string | null]));
 
   // 4. Batch-load latest container statuses (table may not exist yet if migration not run)
   const watchIds = filtered.map((w) => w.id);
@@ -85,36 +86,32 @@ export async function GET() {
     // Migration not yet run — show without status data
   }
 
-  // 5. Build enriched Sendungen — one entry per (S-Nr × container_no)
+  // 5. Build enriched Sendungen — ONE row per (watch × container_no)
+  //    shipment_reference is kept as the full comma-separated string for the watch,
+  //    so the Sendungen page shows all S-Nrs for that container in one cell.
   const sendungen = filtered.flatMap((w) => {
     const eta = etaMap.get(w.vessel_name_normalized) ?? null;
+    const vessel_terminal = vesselTerminalMap.get(w.vessel_name_normalized) ?? null;
     const containerNos = parseContainerNos(w.container_reference);
 
-    // Split comma/semicolon-separated S-numbers into individual refs
-    const shipmentRefs = (w.shipment_reference ?? '')
-      .split(/[,;\n]/)
-      .map((s: string) => s.trim())
-      .filter(Boolean);
-    // If no S-numbers, still show the container with null ref
-    const refs: (string | null)[] = shipmentRefs.length > 0 ? shipmentRefs : [null];
-
-    return containerNos.flatMap((containerNo) => {
+    return containerNos.map((containerNo) => {
       const status = statusMap.get(`${w.id}::${containerNo}`);
-      return refs.map((ref) => ({
+      return {
         watch_id: w.id,
         vessel_name: w.vessel_name,
         vessel_name_normalized: w.vessel_name_normalized,
-        shipment_reference: ref,
+        shipment_reference: w.shipment_reference ?? null,
         container_source: w.container_source,
         notification_enabled: w.notification_enabled,
         eta,
+        vessel_terminal,
         container_no: containerNo,
         terminal: status?.terminal ?? null,
         provider: status?.provider ?? null,
         normalized_status: status?.normalized_status ?? null,
         status_raw: status?.status_raw ?? null,
         scraped_at: status?.scraped_at ?? null,
-      }));
+      };
     });
   });
 

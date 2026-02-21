@@ -345,7 +345,6 @@ export default async function ScheduleSearchPage({
 
       <ScheduleSearchTable
         rows={rows}
-        initiallyWatched={watchedRows.map((r) => r.vessel_name_normalized)}
         initialShipmentByVessel={shipmentByVessel}
         initialContainerByVessel={containerByVessel}
         initialSnrFilter={snr}

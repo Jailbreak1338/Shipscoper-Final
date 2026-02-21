@@ -5,15 +5,21 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 interface ContainerRow {
   watch_id: string;
   vessel_name: string;
-  shipment_reference: string | null;
+  shipment_reference: string | null;   // comma-separated all S-Nrs for this watch
   container_source: string | null;
   eta: string | null;
+  vessel_terminal: string | null;      // from latest_schedule (vessel schedule terminal)
   container_no: string;
-  terminal: string | null;
+  terminal: string | null;             // from container_latest_status (container tracking terminal)
   provider: string | null;
   normalized_status: string | null;
   status_raw: string | null;
   scraped_at: string | null;
+}
+
+function parseSnrs(raw: string | null): string[] {
+  if (!raw) return [];
+  return raw.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -98,7 +104,7 @@ export default function SendungenPage() {
         r.container_no.toLowerCase().includes(q) ||
         (r.shipment_reference ?? '').toLowerCase().includes(q) ||
         r.vessel_name.toLowerCase().includes(q) ||
-        (r.terminal ?? '').toLowerCase().includes(q);
+        (r.terminal ?? r.vessel_terminal ?? '').toLowerCase().includes(q);
       const matchesStatus = !statusFilter || r.normalized_status === statusFilter;
       return matchesQuery && matchesStatus;
     });
@@ -107,7 +113,7 @@ export default function SendungenPage() {
   // ── Container-Status abrufen ─────────────────────────────────────────────────
   const handleCheck = async () => {
     setChecking(true);
-    setCheckMsg('Container-Status wird abgerufen...');
+    setCheckMsg('Container-Status wird abgerufen…');
     setCheckLog('');
     try {
       const res = await fetch('/api/sendungen/check-container', { method: 'POST' });
@@ -144,8 +150,8 @@ export default function SendungenPage() {
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div style={styles.headerRow}>
         <div>
-          <h1 style={styles.title}>Sendungen mit Container</h1>
-          <p style={styles.subtitle}>Nur Einträge mit gültiger ISO-6346-Container-Nummer · eine Zeile pro S-Nr.</p>
+          <h1 style={styles.title}>Sendungen</h1>
+          <p style={styles.subtitle}>Container-Tracking · eine Zeile pro Container · Terminal und Status aus Live-Abfrage</p>
         </div>
         <button
           type="button"
@@ -153,7 +159,7 @@ export default function SendungenPage() {
           onClick={handleCheck}
           disabled={checking}
         >
-          {checking ? 'Wird abgerufen…' : 'Alle Container-Status abrufen'}
+          {checking ? 'Wird abgerufen…' : 'Container-Status abrufen'}
         </button>
       </div>
 
@@ -208,7 +214,7 @@ export default function SendungenPage() {
           </button>
         )}
         <span style={styles.resultCount}>
-          {filtered.length} / {rows.length} Einträge
+          {filtered.length} / {rows.length} Container
         </span>
       </div>
 
@@ -229,66 +235,56 @@ export default function SendungenPage() {
           <table style={styles.table}>
             <thead>
               <tr>
-                <th style={styles.th}>S-Nr.</th>
                 <th style={styles.th}>Container</th>
+                <th style={styles.th}>S-Nr.</th>
                 <th style={styles.th}>Schiff</th>
                 <th style={styles.th}>ETA</th>
                 <th style={styles.th}>Terminal</th>
                 <th style={styles.th}>Status</th>
                 <th style={styles.th}>Zuletzt abgerufen</th>
-                <th style={styles.th}>Aktionen</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ ...styles.td, textAlign: 'center', color: 'var(--text-secondary)', padding: '32px' }}>
+                  <td colSpan={7} style={{ ...styles.td, textAlign: 'center', color: 'var(--text-secondary)', padding: '32px' }}>
                     Keine Treffer für die aktuelle Suche.
                   </td>
                 </tr>
               ) : (
-                filtered.map((row, i) => (
-                  <tr key={`${row.watch_id}::${row.container_no}::${row.shipment_reference ?? i}`}>
-                    <td style={styles.td}>
-                      {row.shipment_reference
-                        ? <span style={styles.sNrBadge}>{row.shipment_reference}</span>
-                        : <span style={{ color: 'var(--text-secondary)' }}>–</span>}
-                    </td>
-                    <td style={{ ...styles.td, fontFamily: 'monospace', fontWeight: 600, fontSize: '13px' }}>
-                      {row.container_no}
-                    </td>
-                    <td style={styles.td}>{row.vessel_name}</td>
-                    <td style={styles.td}>{fmtEta(row.eta)}</td>
-                    <td style={styles.td}>
-                      {row.terminal
-                        ? <span style={styles.terminalBadge}>
-                            {row.terminal}
-                            {row.provider && (
-                              <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>
-                                {' · '}{row.provider === 'hhla' ? 'HHLA' : row.provider === 'eurogate' ? 'Eurogate' : row.provider.toUpperCase()}
-                              </span>
-                            )}
-                          </span>
-                        : <span style={{ color: 'var(--text-secondary)' }}>–</span>}
-                    </td>
-                    <td style={styles.td}>
-                      <StatusBadge status={row.normalized_status} raw={row.status_raw} />
-                    </td>
-                    <td style={{ ...styles.td, fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                      {fmtTs(row.scraped_at)}
-                    </td>
-                    <td style={styles.td}>
-                      <div style={styles.btnGroup}>
-                        <button type="button" style={styles.btnNotify} onClick={() => {}}>
-                          Lösch-Benachrichtigung
-                        </button>
-                        <button type="button" style={styles.btnWatchlist} onClick={() => {}}>
-                          Zur Watchlist
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                filtered.map((row) => {
+                  const snrs = parseSnrs(row.shipment_reference);
+                  const displayTerminal = row.terminal ?? row.vessel_terminal ?? null;
+                  return (
+                    <tr key={`${row.watch_id}::${row.container_no}`}>
+                      <td style={{ ...styles.td, fontFamily: 'monospace', fontWeight: 600, fontSize: '13px', whiteSpace: 'nowrap' }}>
+                        {row.container_no}
+                      </td>
+                      <td style={styles.td}>
+                        {snrs.length > 0
+                          ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                              {snrs.map((ref) => (
+                                <span key={ref} style={styles.sNrBadge}>{ref}</span>
+                              ))}
+                            </div>
+                          : <span style={{ color: 'var(--text-secondary)' }}>–</span>}
+                      </td>
+                      <td style={styles.td}>{row.vessel_name}</td>
+                      <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{fmtEta(row.eta)}</td>
+                      <td style={styles.td}>
+                        {displayTerminal
+                          ? <span style={styles.terminalBadge}>{displayTerminal}</span>
+                          : <span style={{ color: 'var(--text-secondary)' }}>–</span>}
+                      </td>
+                      <td style={styles.td}>
+                        <StatusBadge status={row.normalized_status} raw={row.status_raw} />
+                      </td>
+                      <td style={{ ...styles.td, fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        {fmtTs(row.scraped_at)}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -313,7 +309,16 @@ function StatusBadge({ status, raw }: { status: string | null; raw: string | nul
   const color = STATUS_COLORS[status] ?? '#6b7280';
   return (
     <div>
-      <span style={{ display: 'inline-block', padding: '2px 7px', border: `1px solid ${color}40`, borderRadius: '4px', fontSize: '12px', fontWeight: 600, color, backgroundColor: `${color}12` }}>
+      <span style={{
+        display: 'inline-block',
+        padding: '2px 8px',
+        border: `1px solid ${color}40`,
+        borderRadius: '4px',
+        fontSize: '12px',
+        fontWeight: 600,
+        color,
+        backgroundColor: `${color}12`,
+      }}>
         {label}
       </span>
       {raw && raw !== status && (
@@ -328,28 +333,25 @@ const styles: Record<string, CSSProperties> = {
   headerRow: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' },
   title: { fontSize: '24px', fontWeight: 700, margin: '0 0 4px', color: 'var(--text-primary)' },
   subtitle: { fontSize: '13px', color: 'var(--text-secondary)', margin: 0 },
-  btnPrimary: { padding: '8px 16px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, flexShrink: 0 },
-  statsRow: { display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' },
-  statCard: { backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 18px', minWidth: '110px', textAlign: 'center' },
-  statValue: { fontSize: '24px', fontWeight: 700 },
-  statLabel: { fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' },
+  btnPrimary: { padding: '9px 16px', backgroundColor: '#0066cc', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, flexShrink: 0 },
+  statsRow: { display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' },
+  statCard: { backgroundColor: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px 20px', minWidth: '110px', textAlign: 'center' },
+  statValue: { fontSize: '26px', fontWeight: 700 },
+  statLabel: { fontSize: '11px', color: 'var(--text-secondary)', marginTop: '3px', textTransform: 'uppercase', letterSpacing: '0.04em' },
   infoBox: { padding: '12px 16px', backgroundColor: 'var(--surface)', border: '1px solid', borderRadius: '8px', fontSize: '13px', color: 'var(--text-primary)', marginBottom: '12px' },
   logPre: { marginTop: '8px', fontSize: '11px', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: '140px', overflowY: 'auto', background: 'var(--surface-muted)', padding: '8px', borderRadius: '4px' },
   errorBox: { padding: '12px 16px', backgroundColor: 'var(--surface-muted)', border: '1px solid #fecaca', borderRadius: '8px', color: '#ef4444', fontSize: '14px', marginBottom: '12px' },
   filterRow: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' },
-  searchInput: { flex: '1 1 260px', padding: '8px 12px', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '14px', backgroundColor: 'var(--surface)', color: 'var(--text-primary)', outline: 'none', minWidth: '200px' },
-  select: { padding: '8px 10px', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '13px', backgroundColor: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer' },
-  btnReset: { padding: '8px 12px', backgroundColor: 'var(--surface-muted)', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '13px', cursor: 'pointer' },
+  searchInput: { flex: '1 1 260px', padding: '9px 12px', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '14px', backgroundColor: 'var(--surface)', color: 'var(--text-primary)', outline: 'none', minWidth: '200px' },
+  select: { padding: '9px 10px', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '14px', backgroundColor: 'var(--surface)', color: 'var(--text-primary)', cursor: 'pointer' },
+  btnReset: { padding: '9px 12px', backgroundColor: 'var(--surface-muted)', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '13px', cursor: 'pointer' },
   resultCount: { fontSize: '13px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' },
   loadingText: { textAlign: 'center', color: 'var(--text-secondary)', padding: '32px' },
-  empty: { padding: '40px 24px', borderRadius: '12px', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', textAlign: 'center', color: 'var(--text-primary)' },
+  empty: { padding: '48px 24px', borderRadius: '12px', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', textAlign: 'center', color: 'var(--text-primary)' },
   tableWrap: { backgroundColor: 'var(--surface)', borderRadius: '12px', border: '1px solid var(--border)', overflow: 'auto' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  th: { padding: '11px 13px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' },
-  td: { padding: '9px 13px', borderBottom: '1px solid var(--border)', fontSize: '13px', verticalAlign: 'middle', color: 'var(--text-primary)' },
+  th: { padding: '12px 14px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '0.04em' },
+  td: { padding: '10px 14px', borderBottom: '1px solid var(--border)', fontSize: '13px', verticalAlign: 'middle', color: 'var(--text-primary)' },
   sNrBadge: { display: 'inline-block', padding: '2px 7px', backgroundColor: 'var(--surface-muted)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '12px', fontWeight: 600, fontFamily: 'monospace' },
-  terminalBadge: { display: 'inline-block', padding: '2px 7px', backgroundColor: 'var(--surface-muted)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '12px', fontWeight: 600 },
-  btnGroup: { display: 'flex', flexDirection: 'column', gap: '5px' },
-  btnNotify: { padding: '4px 9px', backgroundColor: 'var(--surface-muted)', color: '#b45309', border: '1px solid #fde68a', borderRadius: '6px', fontSize: '11px', cursor: 'pointer', whiteSpace: 'nowrap' },
-  btnWatchlist: { padding: '4px 9px', backgroundColor: 'var(--surface-muted)', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '6px', fontSize: '11px', cursor: 'pointer', whiteSpace: 'nowrap' },
+  terminalBadge: { display: 'inline-block', padding: '2px 8px', backgroundColor: 'var(--surface-muted)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '12px', fontWeight: 600 },
 };
