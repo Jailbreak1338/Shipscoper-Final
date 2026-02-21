@@ -1,4 +1,4 @@
-ETA Automation - Vessel Schedule Scrape
+TA Automation - Vessel Schedule Scrape
 Automatisiertes Scraping von Schiffsankunftszeiten (ETAs) der Hamburger Container-Terminals **EUROGATE** und **HHLA**, mit Cross-Matching, Excel-Export und E-Mail-Automatisierung.
 
 Features
@@ -12,7 +12,6 @@ Features
 - **Logging** — Loguru mit Rotation und File-Output
 
 Architektur
-
 ```
 eta-automation/
 ├── main.py                    # CLI Entry Point
