@@ -5,21 +5,21 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 interface ContainerRow {
   watch_id: string;
   vessel_name: string;
-  shipment_reference: string | null;   // comma-separated all S-Nrs for this watch
+  shipment_reference: string | null;
   container_source: string | null;
   eta: string | null;
-  vessel_terminal: string | null;      // from latest_schedule (vessel schedule terminal)
+  etd: string | null;
+  previous_eta: string | null;
+  previous_etd: string | null;
+  eta_change_days: number | null;
+  etd_change_days: number | null;
+  vessel_terminal: string | null;
   container_no: string;
-  terminal: string | null;             // from container_latest_status (container tracking terminal)
+  terminal: string | null;
   provider: string | null;
   normalized_status: string | null;
   status_raw: string | null;
   scraped_at: string | null;
-}
-
-function parseSnrs(raw: string | null): string[] {
-  if (!raw) return [];
-  return raw.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -35,7 +35,7 @@ const STATUS_COLORS: Record<string, string> = {
   DELIVERED_OUT: '#16a34a',
 };
 
-function fmtEta(iso: string | null) {
+function fmtDate(iso: string | null) {
   if (!iso) return '-';
   return new Date(iso).toLocaleDateString('de-DE', {
     timeZone: 'Europe/Berlin',
@@ -55,17 +55,17 @@ function fmtTs(iso: string | null) {
     minute: '2-digit',
   });
 }
+function fmtDayDiff(days: number | null): string {
+  if (days == null || days === 0) return '';
+  return `${days > 0 ? '+' : ''}${days}d`;
+}
 
 export default function SendungenPage() {
   const [rows, setRows] = useState<ContainerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-
-  // Search & filter
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-
-  // Container-Status-Abruf
   const [checking, setChecking] = useState(false);
   const [checkMsg, setCheckMsg] = useState('');
   const [checkLog, setCheckLog] = useState('');
@@ -85,7 +85,6 @@ export default function SendungenPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // ── Stats ────────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
     const total = rows.length;
     const withStatus = rows.filter((r) => r.normalized_status).length;
@@ -95,7 +94,6 @@ export default function SendungenPage() {
     return { total, withStatus, ready, delivered, discharged };
   }, [rows]);
 
-  // ── Filtered rows ─────────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rows.filter((r) => {
@@ -110,7 +108,6 @@ export default function SendungenPage() {
     });
   }, [rows, query, statusFilter]);
 
-  // ── Container-Status abrufen ─────────────────────────────────────────────────
   const handleCheck = async () => {
     setChecking(true);
     setCheckMsg('Container-Status wird abgerufen…');
@@ -120,7 +117,6 @@ export default function SendungenPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? 'Fehler beim Starten');
       const jobId: string = json.jobId;
-
       const start = Date.now();
       while (Date.now() - start < 90_000) {
         await new Promise((r) => setTimeout(r, 5_000));
@@ -147,11 +143,11 @@ export default function SendungenPage() {
 
   return (
     <div style={styles.page}>
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      {/* Header */}
       <div style={styles.headerRow}>
         <div>
           <h1 style={styles.title}>Sendungen</h1>
-          <p style={styles.subtitle}>Container-Tracking · eine Zeile pro Container · Terminal und Status aus Live-Abfrage</p>
+          <p style={styles.subtitle}>Container-Tracking · eine Zeile pro S-Nr. · Terminal und Status aus Live-Abfrage</p>
         </div>
         <button
           type="button"
@@ -163,18 +159,18 @@ export default function SendungenPage() {
         </button>
       </div>
 
-      {/* ── Stats ──────────────────────────────────────────────────────────── */}
+      {/* Stats */}
       {!loading && rows.length > 0 && (
         <div style={styles.statsRow}>
-          <Stat label="Container gesamt" value={stats.total} />
-          <Stat label="Mit Status" value={stats.withStatus} />
-          <Stat label="Bereit" value={stats.ready} color="#2563eb" />
-          <Stat label="Entladen" value={stats.discharged} color="#d97706" />
-          <Stat label="Ausgeliefert" value={stats.delivered} color="#16a34a" />
+          <StatCard label="Sendungen gesamt" value={stats.total} />
+          <StatCard label="Mit Status" value={stats.withStatus} />
+          <StatCard label="Bereit" value={stats.ready} color="#2563eb" />
+          <StatCard label="Entladen" value={stats.discharged} color="#d97706" />
+          <StatCard label="Ausgeliefert" value={stats.delivered} color="#16a34a" />
         </div>
       )}
 
-      {/* ── Check feedback ─────────────────────────────────────────────────── */}
+      {/* Check-Feedback */}
       {checkMsg && (
         <div style={{ ...styles.infoBox, borderColor: checkMsg.startsWith('Fehler') ? '#fecaca' : '#bbf7d0' }}>
           <strong>{checkMsg}</strong>
@@ -183,7 +179,7 @@ export default function SendungenPage() {
       )}
       {error && <div style={styles.errorBox}>{error}</div>}
 
-      {/* ── Search & Filter ────────────────────────────────────────────────── */}
+      {/* Search & Filter */}
       <div style={styles.filterRow}>
         <input
           type="search"
@@ -213,12 +209,10 @@ export default function SendungenPage() {
             Zurücksetzen
           </button>
         )}
-        <span style={styles.resultCount}>
-          {filtered.length} / {rows.length} Container
-        </span>
+        <span style={styles.resultCount}>{filtered.length} / {rows.length} Einträge</span>
       </div>
 
-      {/* ── Table ──────────────────────────────────────────────────────────── */}
+      {/* Table */}
       {loading && <p style={styles.loadingText}>Sendungen werden geladen…</p>}
 
       {!loading && rows.length === 0 && !error && (
@@ -235,42 +229,50 @@ export default function SendungenPage() {
           <table style={styles.table}>
             <thead>
               <tr>
-                <th style={styles.th}>Container</th>
                 <th style={styles.th}>S-Nr.</th>
+                <th style={styles.th}>Container</th>
                 <th style={styles.th}>Schiff</th>
                 <th style={styles.th}>ETA</th>
+                <th style={styles.th}>Δ ETA</th>
+                <th style={styles.th}>ETD</th>
+                <th style={styles.th}>Δ ETD</th>
                 <th style={styles.th}>Terminal</th>
                 <th style={styles.th}>Status</th>
-                <th style={styles.th}>Zuletzt abgerufen</th>
+                <th style={styles.th}>Abgerufen</th>
+                <th style={styles.th}>Aktionen</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ ...styles.td, textAlign: 'center', color: 'var(--text-secondary)', padding: '32px' }}>
+                  <td colSpan={11} style={{ ...styles.td, textAlign: 'center', color: 'var(--text-secondary)', padding: '32px' }}>
                     Keine Treffer für die aktuelle Suche.
                   </td>
                 </tr>
               ) : (
-                filtered.map((row) => {
-                  const snrs = parseSnrs(row.shipment_reference);
+                filtered.map((row, i) => {
                   const displayTerminal = row.terminal ?? row.vessel_terminal ?? null;
+                  const etaDelta = fmtDayDiff(row.eta_change_days);
+                  const etdDelta = fmtDayDiff(row.etd_change_days);
                   return (
-                    <tr key={`${row.watch_id}::${row.container_no}`}>
-                      <td style={{ ...styles.td, fontFamily: 'monospace', fontWeight: 600, fontSize: '13px', whiteSpace: 'nowrap' }}>
-                        {row.container_no}
-                      </td>
+                    <tr key={`${row.watch_id}::${row.container_no}::${row.shipment_reference ?? i}`}>
                       <td style={styles.td}>
-                        {snrs.length > 0
-                          ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                              {snrs.map((ref) => (
-                                <span key={ref} style={styles.sNrBadge}>{ref}</span>
-                              ))}
-                            </div>
+                        {row.shipment_reference
+                          ? <span style={styles.snrBadge}>{row.shipment_reference}</span>
                           : <span style={{ color: 'var(--text-secondary)' }}>–</span>}
                       </td>
+                      <td style={{ ...styles.td, fontFamily: 'monospace', fontWeight: 600, fontSize: '12px', whiteSpace: 'nowrap' }}>
+                        {row.container_no}
+                      </td>
                       <td style={styles.td}>{row.vessel_name}</td>
-                      <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{fmtEta(row.eta)}</td>
+                      <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{fmtDate(row.eta)}</td>
+                      <td style={{ ...styles.td, fontWeight: 600, whiteSpace: 'nowrap', color: row.eta_change_days == null || row.eta_change_days === 0 ? 'var(--text-secondary)' : row.eta_change_days > 0 ? '#dc2626' : '#16a34a' }}>
+                        {etaDelta || '–'}
+                      </td>
+                      <td style={{ ...styles.td, whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>{fmtDate(row.etd)}</td>
+                      <td style={{ ...styles.td, fontWeight: 600, whiteSpace: 'nowrap', color: row.etd_change_days == null || row.etd_change_days === 0 ? 'var(--text-secondary)' : row.etd_change_days > 0 ? '#dc2626' : '#16a34a' }}>
+                        {etdDelta || '–'}
+                      </td>
                       <td style={styles.td}>
                         {displayTerminal
                           ? <span style={styles.terminalBadge}>{displayTerminal}</span>
@@ -279,8 +281,18 @@ export default function SendungenPage() {
                       <td style={styles.td}>
                         <StatusBadge status={row.normalized_status} raw={row.status_raw} />
                       </td>
-                      <td style={{ ...styles.td, fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                      <td style={{ ...styles.td, fontSize: '11px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                         {fmtTs(row.scraped_at)}
+                      </td>
+                      <td style={styles.td}>
+                        <div style={styles.actionGroup}>
+                          <button type="button" style={styles.btnNotify} onClick={() => {}}>
+                            Lösch-Benachrichtigung
+                          </button>
+                          <button type="button" style={styles.btnPickup} onClick={() => {}}>
+                            Abnahme-Benachrichtigung
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -294,7 +306,7 @@ export default function SendungenPage() {
   );
 }
 
-function Stat({ label, value, color }: { label: string; value: number; color?: string }) {
+function StatCard({ label, value, color }: { label: string; value: number; color?: string }) {
   return (
     <div style={styles.statCard}>
       <div style={{ ...styles.statValue, color: color ?? 'var(--text-primary)' }}>{value}</div>
@@ -304,32 +316,23 @@ function Stat({ label, value, color }: { label: string; value: number; color?: s
 }
 
 function StatusBadge({ status, raw }: { status: string | null; raw: string | null }) {
-  if (!status) return <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>Noch nicht abgerufen</span>;
+  if (!status) return <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>Noch nicht abgerufen</span>;
   const label = STATUS_LABELS[status] ?? status;
   const color = STATUS_COLORS[status] ?? '#6b7280';
   return (
     <div>
-      <span style={{
-        display: 'inline-block',
-        padding: '2px 8px',
-        border: `1px solid ${color}40`,
-        borderRadius: '4px',
-        fontSize: '12px',
-        fontWeight: 600,
-        color,
-        backgroundColor: `${color}12`,
-      }}>
+      <span style={{ display: 'inline-block', padding: '2px 7px', border: `1px solid ${color}40`, borderRadius: '4px', fontSize: '11px', fontWeight: 600, color, backgroundColor: `${color}12` }}>
         {label}
       </span>
       {raw && raw !== status && (
-        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>{raw}</div>
+        <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>{raw}</div>
       )}
     </div>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
-  page: { maxWidth: '1400px', margin: '0 auto', padding: '32px 24px' },
+  page: { maxWidth: '1500px', margin: '0 auto', padding: '32px 24px' },
   headerRow: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', marginBottom: '20px', flexWrap: 'wrap' },
   title: { fontSize: '24px', fontWeight: 700, margin: '0 0 4px', color: 'var(--text-primary)' },
   subtitle: { fontSize: '13px', color: 'var(--text-secondary)', margin: 0 },
@@ -350,8 +353,11 @@ const styles: Record<string, CSSProperties> = {
   empty: { padding: '48px 24px', borderRadius: '12px', border: '1px solid var(--border)', backgroundColor: 'var(--surface)', textAlign: 'center', color: 'var(--text-primary)' },
   tableWrap: { backgroundColor: 'var(--surface)', borderRadius: '12px', border: '1px solid var(--border)', overflow: 'auto' },
   table: { width: '100%', borderCollapse: 'collapse' },
-  th: { padding: '12px 14px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '0.04em' },
-  td: { padding: '10px 14px', borderBottom: '1px solid var(--border)', fontSize: '13px', verticalAlign: 'middle', color: 'var(--text-primary)' },
-  sNrBadge: { display: 'inline-block', padding: '2px 7px', backgroundColor: 'var(--surface-muted)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '12px', fontWeight: 600, fontFamily: 'monospace' },
-  terminalBadge: { display: 'inline-block', padding: '2px 8px', backgroundColor: 'var(--surface-muted)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '12px', fontWeight: 600 },
+  th: { padding: '11px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '0.05em' },
+  td: { padding: '9px 12px', borderBottom: '1px solid var(--border)', fontSize: '13px', verticalAlign: 'middle', color: 'var(--text-primary)' },
+  snrBadge: { display: 'inline-block', padding: '2px 7px', backgroundColor: 'var(--surface-muted)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '11px', fontWeight: 700, fontFamily: 'monospace' },
+  terminalBadge: { display: 'inline-block', padding: '2px 7px', backgroundColor: 'var(--surface-muted)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '11px', fontWeight: 600 },
+  actionGroup: { display: 'flex', flexDirection: 'column', gap: '4px' },
+  btnNotify: { padding: '4px 8px', backgroundColor: 'var(--surface-muted)', color: '#92400e', border: '1px solid #fde68a', borderRadius: '5px', fontSize: '10px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' },
+  btnPickup: { padding: '4px 8px', backgroundColor: 'var(--surface-muted)', color: '#065f46', border: '1px solid #a7f3d0', borderRadius: '5px', fontSize: '10px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' },
 };

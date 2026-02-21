@@ -14,6 +14,13 @@ function parseContainerNos(raw: string | null): string[] {
     .filter((s) => CONTAINER_NO_RE.test(s));
 }
 
+function toDayDiff(newDate: string | null, oldDate: string | null): number | null {
+  if (!newDate || !oldDate) return null;
+  const diff = Date.parse(newDate) - Date.parse(oldDate);
+  if (isNaN(diff)) return null;
+  return Math.round(diff / 86_400_000);
+}
+
 export async function GET() {
   const supabase = createRouteHandlerClient({ cookies });
   const {
@@ -42,17 +49,46 @@ export async function GET() {
 
   if (filtered.length === 0) return NextResponse.json({ sendungen: [] });
 
-  // 3. Batch-load current ETAs + vessel terminal from latest_schedule
+  // 3. Batch-load current ETA, ETD, terminal + vessel_id from latest_schedule
   const normalizedNames = [
     ...new Set(filtered.map((w) => w.vessel_name_normalized).filter(Boolean)),
   ];
   const { data: schedules } = await admin
     .from('latest_schedule')
-    .select('name_normalized, eta, terminal')
+    .select('name_normalized, vessel_id, eta, etd, terminal')
     .in('name_normalized', normalizedNames);
 
   const etaMap = new Map((schedules ?? []).map((s) => [s.name_normalized, s.eta as string | null]));
+  const etdMap = new Map((schedules ?? []).map((s) => [s.name_normalized, s.etd as string | null]));
   const vesselTerminalMap = new Map((schedules ?? []).map((s) => [s.name_normalized, s.terminal as string | null]));
+  const vesselIdByName = new Map((schedules ?? []).map((s) => [s.name_normalized, s.vessel_id as string | null]));
+
+  // 3b. Get previous ETA/ETD from schedule_events history (2nd most recent per vessel)
+  const vesselIds = [
+    ...new Set((schedules ?? []).map((s) => s.vessel_id as string).filter(Boolean)),
+  ];
+  const prevEtaByVesselId = new Map<string, string | null>();
+  const prevEtdByVesselId = new Map<string, string | null>();
+
+  if (vesselIds.length > 0) {
+    const { data: recentEvents } = await admin
+      .from('schedule_events')
+      .select('vessel_id, source, eta, etd')
+      .in('vessel_id', vesselIds)
+      .order('scraped_at', { ascending: false })
+      .limit(vesselIds.length * 6);
+
+    const seenLatest = new Set<string>();
+    for (const ev of recentEvents ?? []) {
+      const srcKey = `${ev.vessel_id}|${ev.source}`;
+      if (!seenLatest.has(srcKey)) {
+        seenLatest.add(srcKey); // latest — skip, we have it from latest_schedule
+      } else if (!prevEtaByVesselId.has(ev.vessel_id)) {
+        prevEtaByVesselId.set(ev.vessel_id, ev.eta as string | null);
+        prevEtdByVesselId.set(ev.vessel_id, ev.etd as string | null);
+      }
+    }
+  }
 
   // 4. Batch-load latest container statuses (table may not exist yet if migration not run)
   const watchIds = filtered.map((w) => w.id);
@@ -86,24 +122,40 @@ export async function GET() {
     // Migration not yet run — show without status data
   }
 
-  // 5. Build enriched Sendungen — ONE row per (watch × container_no)
-  //    shipment_reference is kept as the full comma-separated string for the watch,
-  //    so the Sendungen page shows all S-Nrs for that container in one cell.
+  // 5. ONE row per (S-Nr × container_no)
+  //    Each S-Nr gets its own row paired with each container for that vessel.
   const sendungen = filtered.flatMap((w) => {
     const eta = etaMap.get(w.vessel_name_normalized) ?? null;
+    const etd = etdMap.get(w.vessel_name_normalized) ?? null;
     const vessel_terminal = vesselTerminalMap.get(w.vessel_name_normalized) ?? null;
-    const containerNos = parseContainerNos(w.container_reference);
+    const vesselId = vesselIdByName.get(w.vessel_name_normalized) ?? null;
+    const previous_eta = vesselId ? (prevEtaByVesselId.get(vesselId) ?? null) : null;
+    const previous_etd = vesselId ? (prevEtdByVesselId.get(vesselId) ?? null) : null;
+    const eta_change_days = toDayDiff(eta, previous_eta);
+    const etd_change_days = toDayDiff(etd, previous_etd);
 
-    return containerNos.map((containerNo) => {
+    const containerNos = parseContainerNos(w.container_reference);
+    const shipmentRefs = (w.shipment_reference ?? '')
+      .split(/[,;\n]/)
+      .map((s: string) => s.trim())
+      .filter(Boolean);
+    const refs: (string | null)[] = shipmentRefs.length > 0 ? shipmentRefs : [null];
+
+    return containerNos.flatMap((containerNo) => {
       const status = statusMap.get(`${w.id}::${containerNo}`);
-      return {
+      return refs.map((ref) => ({
         watch_id: w.id,
         vessel_name: w.vessel_name,
         vessel_name_normalized: w.vessel_name_normalized,
-        shipment_reference: w.shipment_reference ?? null,
+        shipment_reference: ref,
         container_source: w.container_source,
         notification_enabled: w.notification_enabled,
         eta,
+        etd,
+        previous_eta,
+        previous_etd,
+        eta_change_days,
+        etd_change_days,
         vessel_terminal,
         container_no: containerNo,
         terminal: status?.terminal ?? null,
@@ -111,7 +163,7 @@ export async function GET() {
         normalized_status: status?.normalized_status ?? null,
         status_raw: status?.status_raw ?? null,
         scraped_at: status?.scraped_at ?? null,
-      };
+      }));
     });
   });
 
