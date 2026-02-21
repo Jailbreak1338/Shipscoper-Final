@@ -28,12 +28,6 @@ function formatEtaChange(days: number | null): string {
   return `${days > 0 ? '+' : ''}${days} Tage`;
 }
 
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
-export default function ScheduleSearchTable({
-  rows,
-=======
-type ShipmentMap = Record<string, string[]>;
-
 function parseShipmentValues(input: string | null | undefined): string[] {
   return String(input ?? '')
     .split(/[;,\n]/)
@@ -44,20 +38,10 @@ function parseShipmentValues(input: string | null | undefined): string[] {
 export default function ScheduleSearchTable({
   rows,
   initiallyWatched,
->>>>>>> main
   initialShipmentByVessel,
   initialSnrFilter,
 }: {
   rows: SearchRow[];
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
-  initialShipmentByVessel: ShipmentMap;
-  initialSnrFilter?: string;
-}) {
-  const [shipmentByVessel] = useState<ShipmentMap>(initialShipmentByVessel);
-  const [snrFilter, setSnrFilter] = useState(initialSnrFilter ?? '');
-  const [onlyUnassigned, setOnlyUnassigned] = useState(false);
-  const [onlyWithSnr, setOnlyWithSnr] = useState(false);
-=======
   initiallyWatched: string[];
   initialShipmentByVessel: ShipmentMap;
   initialSnrFilter?: string;
@@ -74,7 +58,7 @@ export default function ScheduleSearchTable({
   const [shipmentSuggestions, setShipmentSuggestions] = useState<Record<string, string[]>>({});
   const [snrFilter, setSnrFilter] = useState(initialSnrFilter ?? '');
   const [onlyUnassigned, setOnlyUnassigned] = useState(false);
->>>>>>> main
+  const [onlyWithSnr, setOnlyWithSnr] = useState(false);
 
   const uniqueVesselsOnPage = useMemo(() => {
     const names = new Set(rows.map((r) => r.vessel_name_normalized));
@@ -83,7 +67,6 @@ export default function ScheduleSearchTable({
 
   const filteredRows = useMemo(() => {
     const q = snrFilter.trim().toLowerCase();
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
 
     return rows.filter((row) => {
       const vesselShipments = shipmentByVessel[row.vessel_name_normalized] ?? [];
@@ -93,15 +76,6 @@ export default function ScheduleSearchTable({
       return vesselShipments.some((snr) => snr.toLowerCase().includes(q));
     });
   }, [rows, shipmentByVessel, snrFilter, onlyUnassigned, onlyWithSnr]);
-=======
-
-    return rows.filter((row) => {
-      const vesselShipments = shipmentByVessel[row.vessel_name_normalized] ?? [];
-      if (onlyUnassigned && vesselShipments.length > 0) return false;
-      if (!q) return true;
-      return vesselShipments.some((snr) => snr.toLowerCase().includes(q));
-    });
-  }, [rows, shipmentByVessel, snrFilter, onlyUnassigned]);
 
   const fetchShipmentSuggestions = async (key: string, query: string) => {
     if (query.trim().length < 2) {
@@ -170,7 +144,6 @@ export default function ScheduleSearchTable({
       setAdding((prev) => ({ ...prev, [normalized]: false }));
     }
   };
->>>>>>> main
 
 
   const bulkAssignFromFilter = async () => {
@@ -218,7 +191,6 @@ export default function ScheduleSearchTable({
             <input
               type="checkbox"
               checked={onlyUnassigned}
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
               onChange={(e) => {
                 const next = e.target.checked;
                 setOnlyUnassigned(next);
@@ -239,16 +211,10 @@ export default function ScheduleSearchTable({
             />
             Nur mit S-Nr.
           </label>
-=======
-              onChange={(e) => setOnlyUnassigned(e.target.checked)}
-            />
-            Nur ohne S-Nr.
-          </label>
           <button type="button" style={styles.bulkBtn} onClick={bulkAssignFromFilter}>
             Filter-S-Nr. zuordnen
           </button>
           {flash && <div style={styles.flash}>{flash}</div>}
->>>>>>> main
         </div>
       </div>
 
@@ -264,36 +230,25 @@ export default function ScheduleSearchTable({
               <th style={styles.th}>ETD</th>
               <th style={styles.th}>Terminal</th>
               <th style={styles.th}>Scraped At</th>
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
-              <th style={styles.th}>S-Nr. (aus Upload)</th>
-=======
               <th style={styles.th}>S-Nr. (Watchlist)</th>
               <th style={styles.th}>Aktion</th>
->>>>>>> main
             </tr>
           </thead>
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
-                <td colSpan={9} style={{ ...styles.td, textAlign: 'center', color: 'var(--text-secondary)' }}>
-=======
-                <td colSpan={10} style={{ ...styles.td, textAlign: 'center', color: '#777' }}>
->>>>>>> main
+                <td colSpan={10} style={{ ...styles.td, textAlign: 'center', color: 'var(--text-secondary)' }}>
                   Keine Daten gefunden
                 </td>
               </tr>
             ) : (
               filteredRows.map((row, i) => {
                 const key = row.vessel_name_normalized;
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
-=======
                 const isWatched = watchedSet.has(key);
                 const isAdding = adding[key] === true;
                 const isOpen = menuOpenFor === key;
                 const currentInput = shipmentInput[key] ?? '';
                 const suggestions = shipmentSuggestions[key] ?? [];
->>>>>>> main
                 const assigned = shipmentByVessel[key] ?? [];
 
                 return (
@@ -307,8 +262,6 @@ export default function ScheduleSearchTable({
                     <td style={styles.td}>{row.terminal ?? '-'}</td>
                     <td style={styles.td}>{formatDateTime(row.scraped_at)}</td>
                     <td style={styles.td}>{assigned.length > 0 ? assigned.join(', ') : '-'}</td>
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
-=======
                     <td style={styles.td}>
                       <button
                         type="button"
@@ -370,7 +323,6 @@ export default function ScheduleSearchTable({
                         </div>
                       )}
                     </td>
->>>>>>> main
                   </tr>
                 );
               })
@@ -402,16 +354,8 @@ const styles: Record<string, CSSProperties> = {
   },
   input: {
     padding: '8px 10px',
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
     border: '1px solid var(--border-strong)',
     borderRadius: '8px',
-=======
-    border: '1px solid #cbd5e1',
-    borderRadius: '8px',
-    fontSize: '13px',
-  },
-  metaText: {
->>>>>>> main
     fontSize: '13px',
     backgroundColor: 'var(--surface)',
     color: 'var(--text-primary)',
@@ -427,13 +371,6 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     gap: '6px',
   },
-  checkLabel: {
-    fontSize: '12px',
-    color: '#475569',
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '6px',
-  },
   bulkBtn: {
     border: '1px solid #bbf7d0',
     backgroundColor: '#f0fdf4',
@@ -443,6 +380,11 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '12px',
     fontWeight: 700,
     cursor: 'pointer',
+  },
+  flash: {
+    fontSize: '12px',
+    color: 'var(--text-secondary)',
+    maxWidth: '300px',
   },
   tableWrap: {
     backgroundColor: 'var(--surface)',
@@ -467,56 +409,57 @@ const styles: Record<string, CSSProperties> = {
     borderBottom: '1px solid var(--border)',
     fontSize: '14px',
     verticalAlign: 'top',
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
-=======
   },
   btnMenu: {
-    border: '1px solid #cbd5e1',
+    border: '1px solid var(--border-strong)',
     borderRadius: '6px',
     fontSize: '12px',
     fontWeight: 700,
     padding: '6px 10px',
-    backgroundColor: '#f8fafc',
-    color: '#334155',
+    backgroundColor: 'var(--surface-muted)',
+    color: 'var(--text-primary)',
     cursor: 'pointer',
   },
   menuBox: {
     marginTop: '8px',
-    border: '1px solid #e2e8f0',
+    border: '1px solid var(--border)',
     borderRadius: '8px',
     padding: '8px',
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'var(--surface-muted)',
     minWidth: '220px',
   },
   menuInput: {
     width: '100%',
     padding: '8px 10px',
-    border: '1px solid #cbd5e1',
+    border: '1px solid var(--border-strong)',
     borderRadius: '6px',
     fontSize: '13px',
     boxSizing: 'border-box',
+    backgroundColor: 'var(--surface)',
+    color: 'var(--text-primary)',
   },
   suggestionBox: {
     marginTop: '6px',
-    border: '1px solid #e2e8f0',
+    border: '1px solid var(--border)',
     borderRadius: '6px',
     overflow: 'hidden',
-    backgroundColor: '#fff',
+    backgroundColor: 'var(--surface)',
   },
   suggestionItem: {
     width: '100%',
     textAlign: 'left',
     padding: '6px 8px',
     border: 'none',
-    borderBottom: '1px solid #f1f5f9',
-    backgroundColor: '#fff',
+    borderBottom: '1px solid var(--border)',
+    backgroundColor: 'var(--surface)',
+    color: 'var(--text-primary)',
     cursor: 'pointer',
     fontSize: '13px',
   },
   assignedText: {
     marginTop: '6px',
     fontSize: '12px',
-    color: '#475569',
+    color: 'var(--text-secondary)',
     maxWidth: '240px',
   },
   btnWatch: {
@@ -528,6 +471,5 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 700,
     padding: '7px 10px',
     cursor: 'pointer',
->>>>>>> main
   },
 };

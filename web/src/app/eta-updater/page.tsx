@@ -30,10 +30,7 @@ interface UpdateSummary {
     newEta: string | null;
   }>;
   autoAssignedShipments?: number;
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
   autoAssignSkippedConflicts?: number;
-=======
->>>>>>> main
 }
 
 type Step = 'upload' | 'columns' | 'processing' | 'result';
@@ -306,11 +303,7 @@ export default function EtaUpdaterPage() {
                 ? 'Datei wird analysiert...'
                 : 'Excel-Datei hier ablegen'}
             </p>
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
             <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-secondary)' }}>
-=======
-            <p style={{ margin: 0, fontSize: '14px', color: '#888' }}>
->>>>>>> main
               oder klicken zum Auswählen (.xlsx / .xls, max 10 MB)
             </p>
           </div>
@@ -447,22 +440,15 @@ export default function EtaUpdaterPage() {
               Sendungen - ETA Abgleich
             </h3>
 
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
             <p style={{ margin: '0 0 12px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-=======
-            <p style={{ margin: '0 0 12px', color: '#4b5563', fontSize: '14px' }}>
->>>>>>> main
               Übersprungen (alt): {summary.skippedOld} · Übersprungen (verzollt):{' '}
               {summary.skippedCustoms}
               {typeof summary.autoAssignedShipments === 'number' ? (
                 <> · Auto-Zuordnungen S-Nr.: {summary.autoAssignedShipments}</>
               ) : null}
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
               {typeof summary.autoAssignSkippedConflicts === 'number' && summary.autoAssignSkippedConflicts > 0 ? (
                 <> · Konflikte (S-Nr. bereits bei anderem Schiff): {summary.autoAssignSkippedConflicts}</>
               ) : null}
-=======
->>>>>>> main
             </p>
 
             {groupedEtaChanges.length > 0 ? (
@@ -644,17 +630,10 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid #fecaca',
   },
   matchCard: {
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
     border: '1px solid var(--border)',
     borderRadius: '10px',
     padding: '14px 16px',
     backgroundColor: 'var(--surface-muted)',
-=======
-    border: '1px solid #d1d5db',
-    borderRadius: '10px',
-    padding: '14px 16px',
-    backgroundColor: '#f9fafb',
->>>>>>> main
   },
   statusBadge: {
     display: 'inline-block',
@@ -673,11 +652,7 @@ const styles: Record<string, CSSProperties> = {
     listStyle: 'none',
   },
   shipmentRow: {
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
     borderTop: '1px solid var(--border)',
-=======
-    borderTop: '1px solid #e5e7eb',
->>>>>>> main
     padding: '10px 2px 2px',
     fontSize: '15px',
   },
@@ -692,15 +667,9 @@ const styles: Record<string, CSSProperties> = {
   emptyInfo: {
     padding: '14px',
     borderRadius: '8px',
-<<<<<<< codex/review-handover-file-for-testing-suggestions-ipr7vu
     border: '1px solid var(--border)',
     backgroundColor: 'var(--surface-muted)',
     color: 'var(--text-primary)',
-=======
-    border: '1px solid #e5e7eb',
-    backgroundColor: '#f9fafb',
-    color: '#374151',
->>>>>>> main
     fontSize: '14px',
   },
   spinner: {
