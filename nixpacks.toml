@@ -1,4 +1,11 @@
+# Railway / Nixpacks build configuration
+#
+# The root package.json (Node.js TS worker) and requirements.txt (Python scraper)
+# both exist. Nixpacks would auto-switch to Node.js-only mode and drop Python,
+# making `pip` unavailable. We explicitly add Python 3.11 + pip back.
+
 [phases.setup]
+nixPkgs = ['python311', 'python311Packages.pip']
 aptPkgs = [
   "libglib2.0-0",
   "libnss3",
@@ -24,3 +31,15 @@ aptPkgs = [
   "ca-certificates",
   "fonts-liberation"
 ]
+
+[phases.install]
+cmds = [
+  'pip install --no-cache-dir -r requirements.txt',
+  'npm install',
+]
+
+[phases.build]
+cmds = ['python -m playwright install chromium']
+
+[start]
+cmd = 'gunicorn scraper_api:app --bind 0.0.0.0:$PORT --timeout 300 --workers 1'
