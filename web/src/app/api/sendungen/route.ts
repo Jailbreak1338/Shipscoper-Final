@@ -85,18 +85,26 @@ export async function GET() {
     // Migration not yet run — show without status data
   }
 
-  // 5. Build enriched Sendungen — one entry per (watch × container_no)
+  // 5. Build enriched Sendungen — one entry per (S-Nr × container_no)
   const sendungen = filtered.flatMap((w) => {
     const eta = etaMap.get(w.vessel_name_normalized) ?? null;
     const containerNos = parseContainerNos(w.container_reference);
 
-    return containerNos.map((containerNo) => {
+    // Split comma/semicolon-separated S-numbers into individual refs
+    const shipmentRefs = (w.shipment_reference ?? '')
+      .split(/[,;\n]/)
+      .map((s: string) => s.trim())
+      .filter(Boolean);
+    // If no S-numbers, still show the container with null ref
+    const refs: (string | null)[] = shipmentRefs.length > 0 ? shipmentRefs : [null];
+
+    return containerNos.flatMap((containerNo) => {
       const status = statusMap.get(`${w.id}::${containerNo}`);
-      return {
+      return refs.map((ref) => ({
         watch_id: w.id,
         vessel_name: w.vessel_name,
         vessel_name_normalized: w.vessel_name_normalized,
-        shipment_reference: w.shipment_reference,
+        shipment_reference: ref,
         container_source: w.container_source,
         notification_enabled: w.notification_enabled,
         eta,
@@ -106,7 +114,7 @@ export async function GET() {
         normalized_status: status?.normalized_status ?? null,
         status_raw: status?.status_raw ?? null,
         scraped_at: status?.scraped_at ?? null,
-      };
+      }));
     });
   });
 

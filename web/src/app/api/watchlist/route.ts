@@ -54,6 +54,33 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // Enrich with fresh ETAs from latest_schedule (overrides potentially stale last_known_eta)
+  if ((data ?? []).length > 0) {
+    try {
+      const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
+      const admin = getSupabaseAdmin();
+      const normalizedNames = [
+        ...new Set((data ?? []).map((w) => w.vessel_name_normalized).filter(Boolean)),
+      ];
+      if (normalizedNames.length > 0) {
+        const { data: schedules } = await admin
+          .from('latest_schedule')
+          .select('name_normalized, eta')
+          .in('name_normalized', normalizedNames);
+        const etaMap = new Map(
+          (schedules ?? []).map((s) => [s.name_normalized, s.eta as string | null])
+        );
+        for (const watch of data ?? []) {
+          if (watch.vessel_name_normalized && etaMap.has(watch.vessel_name_normalized)) {
+            watch.last_known_eta = etaMap.get(watch.vessel_name_normalized) ?? watch.last_known_eta;
+          }
+        }
+      }
+    } catch {
+      // Non-fatal: fall back to stored last_known_eta
+    }
+  }
+
   return NextResponse.json({ watches: data });
 }
 
