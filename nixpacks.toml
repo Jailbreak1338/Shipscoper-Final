@@ -11,7 +11,8 @@
 
 [variables]
 PIP_BREAK_SYSTEM_PACKAGES = "1"
-LD_LIBRARY_PATH = "/usr/lib/x86_64-linux-gnu:/usr/lib"
+# LD_LIBRARY_PATH must NOT be set here (Docker ENV = all build stages) as it breaks Nix bash.
+# It is set inline in the start command so it only affects the Python/gunicorn process at runtime.
 
 [phases.setup]
 nixPkgs = ['python311', 'python311Packages.pip', 'nodejs_20']
@@ -52,4 +53,4 @@ cmds = [
 cmds = ['python -m playwright install chromium']
 
 [start]
-cmd = 'python -m gunicorn scraper_api:app --bind 0.0.0.0:$PORT --timeout 300 --workers 1'
+cmd = 'LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu python -m gunicorn scraper_api:app --bind 0.0.0.0:$PORT --timeout 300 --workers 1'

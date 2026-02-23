@@ -5,7 +5,7 @@
     "buildCommand": "pip install --no-cache-dir -r requirements.txt && python -m playwright install chromium"
   },
   "deploy": {
-    "startCommand": "python -m gunicorn scraper_api:app --bind 0.0.0.0:$PORT --timeout 300 --workers 1",
+    "startCommand": "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu python -m gunicorn scraper_api:app --bind 0.0.0.0:$PORT --timeout 300 --workers 1",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE",
