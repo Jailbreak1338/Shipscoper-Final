@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "check-containers": "tsx src/jobs/checkContainers.ts",
+    "test": "tsx --test src/tests/logic.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -175,9 +175,46 @@ export default async function ScheduleSearchPage({
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  const baseQuery = admin
+  // Server-side S-Nr filter: resolve vessel_ids before building the main query.
+  // Looks up vessel_watches where shipment_reference matches, then maps via latest_schedule.
+  let snrVesselIds: string[] | null = null; // null = no filter; [] = filter active but no matches
+  if (snr) {
+    const { data: snrWatches } = await supabase
+      .from('vessel_watches')
+      .select('vessel_name_normalized')
+      .eq('user_id', session.user.id)
+      .ilike('shipment_reference', `%${snr}%`);
+
+    const snrNormalizedNames = [
+      ...new Set(
+        (snrWatches ?? [])
+          .map((w: { vessel_name_normalized: string }) => w.vessel_name_normalized)
+          .filter(Boolean)
+      ),
+    ];
+
+    if (snrNormalizedNames.length > 0) {
+      const { data: snrSchedules } = await admin
+        .from('latest_schedule')
+        .select('vessel_id')
+        .in('name_normalized', snrNormalizedNames);
+      snrVesselIds = (snrSchedules ?? [])
+        .map((s: { vessel_id: string }) => s.vessel_id)
+        .filter(Boolean);
+    } else {
+      snrVesselIds = []; // S-Nr not matched in any watch → zero results
+    }
+  }
+
+  let baseQuery = admin
     .from('schedule_events')
     .select('vessel_id, source, eta, etd, terminal, scraped_at, vessels!inner(name)', { count: 'exact' });
+
+  if (snrVesselIds !== null) {
+    // Use an impossible UUID when no matches so the DB returns 0 rows (avoids empty-IN edge cases)
+    const ids = snrVesselIds.length > 0 ? snrVesselIds : ['00000000-0000-0000-0000-000000000000'];
+    baseQuery = (baseQuery as any).in('vessel_id', ids);
+  }
 
   const filtered = applyFilters(baseQuery, { q, source, etaWindow });
   const sorted = applySort(filtered, sort);

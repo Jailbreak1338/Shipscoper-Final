@@ -31,7 +31,13 @@ async function autoAssignShipmentsFromUpload(params: {
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
 
-  const assignmentByVessel = new Map<string, { vesselName: string; refs: Set<string>; containers: Set<string> }>();
+  const CONTAINER_RE = /^[A-Z]{4}[0-9]{7}$/;
+  const assignmentByVessel = new Map<string, {
+    vesselName: string;
+    refs: Set<string>;
+    containers: Set<string>;
+    pairs: Array<{ container_no: string; snr: string | null }>;
+  }>();
   for (const row of rows) {
     const vesselRaw = String(row[params.vesselCol] ?? '').trim();
     if (!vesselRaw) continue;
@@ -44,6 +50,7 @@ async function autoAssignShipmentsFromUpload(params: {
       vesselName: vesselRaw,
       refs: new Set<string>(),
       containers: new Set<string>(),
+      pairs: [] as Array<{ container_no: string; snr: string | null }>,
     };
 
     for (const ref of refs) {
@@ -51,8 +58,14 @@ async function autoAssignShipmentsFromUpload(params: {
     }
 
     if (params.containerCol) {
-      const containerRaw = String(row[params.containerCol] ?? '').trim();
-      if (containerRaw) existing.containers.add(containerRaw);
+      const containerRaw = String(row[params.containerCol] ?? '').trim().toUpperCase();
+      if (containerRaw && CONTAINER_RE.test(containerRaw)) {
+        existing.containers.add(containerRaw);
+        // Build exact container↔S-Nr pair (one per row, first S-Nr wins if duplicate container)
+        if (!existing.pairs.some((p) => p.container_no === containerRaw)) {
+          existing.pairs.push({ container_no: containerRaw, snr: refs[0] ?? null });
+        }
+      }
     }
 
     assignmentByVessel.set(normalized, existing);
@@ -111,6 +124,7 @@ async function autoAssignShipmentsFromUpload(params: {
     vessel_name_normalized: string;
     shipment_reference: string;
     container_reference: string | null;
+    container_snr_pairs: unknown | null;
     last_known_eta: string | null;
     notification_enabled: boolean;
   }> = [];
@@ -137,6 +151,7 @@ async function autoAssignShipmentsFromUpload(params: {
         vessel_name_normalized: normalized,
         shipment_reference: refs.join(', '),
         container_reference: containerRef,
+        container_snr_pairs: payload.pairs.length > 0 ? payload.pairs : null,
         last_known_eta: null, // filled in batch below
         notification_enabled: false,
       });
@@ -152,11 +167,13 @@ async function autoAssignShipmentsFromUpload(params: {
 
     const refsChanged = mergedRefs.size !== existing.refs.size;
     const containersChanged = mergedContainers.size !== existing.containers.size;
-    if (!refsChanged && !containersChanged) continue;
+    const pairsChanged = payload.pairs.length > 0;
+    if (!refsChanged && !containersChanged && !pairsChanged) continue;
 
-    const updatePayload: Record<string, string | null> = {};
+    const updatePayload: Record<string, unknown> = {};
     if (refsChanged) updatePayload.shipment_reference = Array.from(mergedRefs).join(', ');
     if (containersChanged) updatePayload.container_reference = Array.from(mergedContainers).join(', ');
+    if (pairsChanged) updatePayload.container_snr_pairs = payload.pairs;
 
     const { error: updateError } = await admin
       .from('vessel_watches')

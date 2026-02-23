@@ -5,10 +5,11 @@
  *   npx tsx src/jobs/checkContainers.ts
  *
  * What it does:
- *  1. Load all vessel_watches with notification_enabled=true AND container_reference set
+ *  1. Load all vessel_watches with container_reference set (regardless of notification_enabled)
  *  2. For each (watch, container_no) pair: scrape HHLA or Eurogate
  *  3. Compute status_hash; if new → upsert latest + append event + send notification
  *  4. Notifications are idempotent (dedupe via UNIQUE constraint)
+ *  5. Persists run summary + logs to status_check_runs table
  *
  * ENV (see README#container-tracking):
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
@@ -17,9 +18,11 @@
  *   HHLA_CONTAINER_URL, EUROGATE_CONTAINER_URL (optional overrides)
  *   HEADLESS=false  — show browser window (for debugging)
  *   MAX_CONCURRENCY — parallel browser pages (default: 2)
+ *   SKIP_DELIVERED=false — re-check DELIVERED_OUT containers (default: true = skip)
  */
 
 import 'dotenv/config';
+import { randomUUID } from 'crypto';
 import { chromium, type Browser, type Page } from 'playwright';
 import { getSupabase } from '../lib/supabase.js';
 import { computeStatusHash } from '../lib/hash.js';
@@ -40,6 +43,7 @@ const MAX_CONCURRENCY = parseInt(process.env.MAX_CONCURRENCY ?? '2', 10);
 const RETRY_ATTEMPTS = 3;
 const RETRY_BASE_MS = 3_000;
 const HEADLESS = process.env.HEADLESS !== 'false';
+const SKIP_DELIVERED = process.env.SKIP_DELIVERED !== 'false'; // default: skip DELIVERED_OUT
 
 // Status transitions that trigger notifications
 const NOTIFY_TRANSITIONS: NormalizedStatus[] = [
@@ -55,11 +59,33 @@ const EVENT_TYPE: Record<NormalizedStatus, string> = {
   DELIVERED_OUT: 'container_delivered_out',
 };
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
+// ── Structured logging ────────────────────────────────────────────────────────
 
-const log = (msg: string) => console.log(`[check-containers] ${msg}`);
-const warn = (msg: string) => console.warn(`[check-containers] WARN ${msg}`);
-const err = (msg: string) => console.error(`[check-containers] ERROR ${msg}`);
+const RUN_ID = randomUUID();
+const logLines: string[] = [];
+const startedAt = Date.now();
+
+type LogLevel = 'info' | 'warn' | 'error' | 'debug';
+
+function structuredLog(level: LogLevel, msg: string, data?: object): void {
+  const entry = {
+    ts: new Date().toISOString(),
+    run_id: RUN_ID,
+    level,
+    msg,
+    ...(data ?? {}),
+  };
+  const line = JSON.stringify(entry);
+  if (level === 'error') console.error(line);
+  else if (level === 'warn') console.warn(line);
+  else console.log(line);
+  logLines.push(line);
+}
+
+const log = (msg: string, data?: object) => structuredLog('info', msg, data);
+const warn = (msg: string, data?: object) => structuredLog('warn', msg, data);
+const err = (msg: string, data?: object) => structuredLog('error', msg, data);
+const debug = (msg: string, data?: object) => structuredLog('debug', msg, data);
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -78,10 +104,10 @@ async function withRetry<T>(
       const msg = (e as Error).message;
       if (attempt < maxAttempts) {
         const delay = RETRY_BASE_MS * Math.pow(2, attempt - 1);
-        warn(`${label}: attempt ${attempt}/${maxAttempts} failed (${msg}). Retry in ${delay}ms`);
+        warn(`${label}: attempt ${attempt}/${maxAttempts} failed. Retry in ${delay}ms`, { error: msg });
         await sleep(delay);
       } else {
-        err(`${label}: all ${maxAttempts} attempts failed — ${msg}`);
+        err(`${label}: all ${maxAttempts} attempts failed`, { error: msg });
       }
     }
   }
@@ -106,13 +132,13 @@ async function runWithConcurrency(
 
 // ── Data loading ──────────────────────────────────────────────────────────────
 
-/** Parse comma/semicolon/whitespace-separated container numbers. */
+/** Parse comma/semicolon/whitespace-separated container numbers. Strict ISO 6346. */
 function parseContainerNos(raw: string | null): string[] {
   if (!raw) return [];
   return raw
     .split(/[\s,;]+/)
     .map((s) => s.trim().toUpperCase())
-    .filter((s) => s.length >= 8); // ISO 6346: min 11 chars, but be lenient
+    .filter((s) => /^[A-Z]{4}[0-9]{7}$/.test(s));
 }
 
 async function loadActiveWatches(): Promise<ActiveWatch[]> {
@@ -122,7 +148,7 @@ async function loadActiveWatches(): Promise<ActiveWatch[]> {
     .select(
       'id, user_id, vessel_name, shipment_reference, container_reference, container_source, notification_enabled'
     )
-    .eq('notification_enabled', true)
+    // Check ALL watches with containers — notification_enabled only gates email, not status-checking
     .not('container_reference', 'is', null);
 
   if (error) throw new Error(`loadActiveWatches: ${error.message}`);
@@ -161,6 +187,39 @@ function resolveProvider(
 }
 
 // ── DB writes ──────────────────────────────────────────────────────────────────
+
+async function saveRunToDb(stats: {
+  loaded: number;
+  skipped: number;
+  ok: number;
+  failed: number;
+  changed: number;
+}): Promise<void> {
+  try {
+    const sb = getSupabase();
+    const now = new Date().toISOString();
+    const duration_ms = Date.now() - startedAt;
+    await sb.from('status_check_runs').upsert(
+      {
+        run_id: RUN_ID,
+        started_at: new Date(startedAt).toISOString(),
+        finished_at: now,
+        duration_ms,
+        shipments_loaded: stats.loaded,
+        shipments_skipped: stats.skipped,
+        checked_ok: stats.ok,
+        checked_failed: stats.failed,
+        changed: stats.changed,
+        summary_json: stats,
+        log_text: logLines.join('\n'),
+      },
+      { onConflict: 'run_id' }
+    );
+    log('Run saved to status_check_runs', { run_id: RUN_ID, duration_ms });
+  } catch (e) {
+    warn('Could not save run to DB (migration not yet applied?)', { error: (e as Error).message });
+  }
+}
 
 async function upsertLatestStatus(
   watchId: string,
@@ -257,7 +316,7 @@ async function getUserEmail(userId: string): Promise<string | null> {
   const sb = getSupabase();
   const { data, error } = await sb.auth.admin.getUserById(userId);
   if (error || !data?.user?.email) {
-    warn(`Could not load email for user ${userId}: ${error?.message ?? 'no email'}`);
+    warn(`Could not load email for user ${userId}`, { error: error?.message ?? 'no email' });
     return null;
   }
   return data.user.email;
@@ -270,8 +329,24 @@ async function processContainer(
   containerNo: string,
   latest: LatestStatus | undefined,
   page: Page
-): Promise<{ changed: boolean; error: boolean }> {
+): Promise<{ changed: boolean; error: boolean; skipped: boolean }> {
   const label = `${watch.vessel_name} / ${containerNo}`;
+
+  debug('Processing container', {
+    watch_id: watch.id,
+    vessel: watch.vessel_name,
+    container_no: containerNo,
+    container_source: watch.container_source,
+    notification_enabled: watch.notification_enabled,
+    shipment_reference: watch.shipment_reference,
+    current_status: latest?.normalized_status ?? null,
+  });
+
+  // Skip DELIVERED_OUT containers (already done, no point re-scraping)
+  if (SKIP_DELIVERED && latest?.normalized_status === 'DELIVERED_OUT') {
+    debug(`${label}: skipping DELIVERED_OUT`, { skip_delivered: true });
+    return { changed: false, error: false, skipped: true };
+  }
 
   // Determine provider order and scrape with retry
   const providers = resolveProvider(watch, containerNo);
@@ -290,19 +365,20 @@ async function processContainer(
 
   if (!result) {
     warn(`${label}: no result from any provider — skipping`);
-    return { changed: false, error: true };
+    return { changed: false, error: true, skipped: false };
   }
 
   // Compute hash and compare
   const hash = computeStatusHash(result);
   if (latest?.status_hash === hash) {
-    log(`${label}: unchanged (${result.normalized_status})`);
-    return { changed: false, error: false };
+    log(`${label}: unchanged`, { normalized_status: result.normalized_status });
+    return { changed: false, error: false, skipped: false };
   }
 
-  log(
-    `${label}: status change ${latest?.normalized_status ?? 'NEW'} → ${result.normalized_status}`
-  );
+  log(`${label}: status change`, {
+    from: latest?.normalized_status ?? 'NEW',
+    to: result.normalized_status,
+  });
 
   // Persist: upsert latest status + append event
   await upsertLatestStatus(watch.id, containerNo, result, hash);
@@ -314,8 +390,8 @@ async function processContainer(
     hash
   );
 
-  // Send notification if this is a noteworthy transition
-  if (NOTIFY_TRANSITIONS.includes(result.normalized_status)) {
+  // Send notification only when notification_enabled AND noteworthy transition
+  if (watch.notification_enabled && NOTIFY_TRANSITIONS.includes(result.normalized_status)) {
     const eventType = EVENT_TYPE[result.normalized_status];
     const userEmail = await getUserEmail(watch.user_id);
 
@@ -343,45 +419,64 @@ async function processContainer(
             event_type: eventType,
             discharge_order_ts: result.discharge_order_ts,
           });
-          log(`${label}: notification sent → ${userEmail} (${eventType})`);
+          log(`${label}: notification sent`, { to: userEmail, event_type: eventType });
         } catch (e) {
-          err(`${label}: email send failed — ${(e as Error).message}`);
+          err(`${label}: email send failed`, { error: (e as Error).message });
           // Don't re-throw: notification record exists, no duplicate send on retry
         }
       } else {
         log(`${label}: notification already sent (deduped)`);
       }
     }
+  } else if (!watch.notification_enabled) {
+    debug(`${label}: notification_enabled=false — status updated, no email sent`);
   }
 
-  return { changed: true, error: false };
+  return { changed: true, error: false, skipped: false };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const startedAt = Date.now();
-  log(`Starting — concurrency=${MAX_CONCURRENCY} headless=${HEADLESS}`);
+  log('Starting', { run_id: RUN_ID, concurrency: MAX_CONCURRENCY, headless: HEADLESS, skip_delivered: SKIP_DELIVERED });
 
   // 1. Load watches
   const watches = await loadActiveWatches();
-  log(`Loaded ${watches.length} active watch(es) with container_reference`);
+  log(`Loaded ${watches.length} watch(es) with container_reference`, {
+    total: watches.length,
+    notification_enabled: watches.filter((w) => w.notification_enabled).length,
+  });
 
   if (watches.length === 0) {
     log('Nothing to do.');
+    await saveRunToDb({ loaded: 0, skipped: 0, ok: 0, failed: 0, changed: 0 });
     return;
   }
 
   // 2. Build work items: [(watch, containerNo)]
   type WorkItem = { watch: ActiveWatch; containerNo: string };
   const workItems: WorkItem[] = [];
+  let skipped_no_valid_container = 0;
+
   for (const watch of watches) {
     const nos = parseContainerNos(watch.container_reference);
+    if (nos.length === 0) {
+      debug('No valid ISO-6346 container numbers — skipping watch', {
+        watch_id: watch.id,
+        container_reference: watch.container_reference,
+      });
+      skipped_no_valid_container++;
+      continue;
+    }
     for (const containerNo of nos) {
       workItems.push({ watch, containerNo });
     }
   }
-  log(`${workItems.length} container(s) to check`);
+
+  log(`${workItems.length} container(s) to check`, {
+    work_items: workItems.length,
+    skipped_no_valid_container,
+  });
 
   // 3. Pre-load all latest statuses in one query
   const watchIds = [...new Set(watches.map((w) => w.id))];
@@ -397,6 +492,7 @@ async function main(): Promise<void> {
   let changed = 0;
   let unchanged = 0;
   let errors = 0;
+  let skipped_delivered = 0;
 
   const tasks = workItems.map(({ watch, containerNo }) => async () => {
     const page = await browser.newPage();
@@ -409,7 +505,8 @@ async function main(): Promise<void> {
       const latestKey = `${watch.id}::${containerNo}`;
       const latest = latestMap.get(latestKey);
       const result = await processContainer(watch, containerNo, latest, page);
-      if (result.changed) changed++;
+      if (result.skipped) skipped_delivered++;
+      else if (result.changed) changed++;
       else if (result.error) errors++;
       else unchanged++;
     } finally {
@@ -421,11 +518,23 @@ async function main(): Promise<void> {
 
   await browser.close();
 
-  const durationS = ((Date.now() - startedAt) / 1000).toFixed(1);
-  log(
-    `Done in ${durationS}s — ` +
-      `changed=${changed} unchanged=${unchanged} errors=${errors}`
-  );
+  const durationMs = Date.now() - startedAt;
+  const stats = {
+    loaded: watches.length,
+    skipped: skipped_no_valid_container + skipped_delivered,
+    ok: unchanged,
+    failed: errors,
+    changed,
+  };
+
+  log('Done', {
+    duration_ms: durationMs,
+    ...stats,
+    skipped_delivered,
+    skipped_no_valid_container,
+  });
+
+  await saveRunToDb(stats);
 }
 
 main().catch((e) => {

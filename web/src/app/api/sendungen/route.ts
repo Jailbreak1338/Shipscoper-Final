@@ -34,7 +34,7 @@ export async function GET() {
   const { data: watches, error } = await supabase
     .from('vessel_watches')
     .select(
-      'id, vessel_name, vessel_name_normalized, shipment_reference, container_reference, container_source, notification_enabled'
+      'id, vessel_name, vessel_name_normalized, shipment_reference, container_reference, container_snr_pairs, container_source, notification_enabled'
     )
     .eq('user_id', session.user.id)
     .not('container_reference', 'is', null)
@@ -122,8 +122,10 @@ export async function GET() {
     // Migration not yet run — show without status data
   }
 
-  // 5. ONE row per (S-Nr × container_no)
-  //    Each S-Nr gets its own row paired with each container for that vessel.
+  // 5. ONE row per container — use container_snr_pairs when available (exact Excel pairings),
+  //    fall back to cross-product for old data that predates the migration.
+  type ContainerSnrPair = { container_no: string; snr: string | null };
+
   const sendungen = filtered.flatMap((w) => {
     const eta = etaMap.get(w.vessel_name_normalized) ?? null;
     const etd = etdMap.get(w.vessel_name_normalized) ?? null;
@@ -134,6 +136,40 @@ export async function GET() {
     const eta_change_days = toDayDiff(eta, previous_eta);
     const etd_change_days = toDayDiff(etd, previous_etd);
 
+    const commonFields = {
+      watch_id: w.id,
+      vessel_name: w.vessel_name,
+      vessel_name_normalized: w.vessel_name_normalized,
+      container_source: w.container_source,
+      notification_enabled: w.notification_enabled,
+      eta,
+      etd,
+      previous_eta,
+      previous_etd,
+      eta_change_days,
+      etd_change_days,
+      vessel_terminal,
+    };
+
+    // Prefer exact per-row pairs from Excel upload (no cross-product)
+    const pairs = w.container_snr_pairs as ContainerSnrPair[] | null;
+    if (pairs && Array.isArray(pairs) && pairs.length > 0) {
+      return pairs.map((pair) => {
+        const status = statusMap.get(`${w.id}::${pair.container_no}`);
+        return {
+          ...commonFields,
+          shipment_reference: pair.snr,
+          container_no: pair.container_no,
+          terminal: status?.terminal ?? null,
+          provider: status?.provider ?? null,
+          normalized_status: status?.normalized_status ?? null,
+          status_raw: status?.status_raw ?? null,
+          scraped_at: status?.scraped_at ?? null,
+        };
+      });
+    }
+
+    // Fallback: cross-product for rows without container_snr_pairs (old data)
     const containerNos = parseContainerNos(w.container_reference);
     const shipmentRefs = (w.shipment_reference ?? '')
       .split(/[,;\n]/)
@@ -144,19 +180,8 @@ export async function GET() {
     return containerNos.flatMap((containerNo) => {
       const status = statusMap.get(`${w.id}::${containerNo}`);
       return refs.map((ref) => ({
-        watch_id: w.id,
-        vessel_name: w.vessel_name,
-        vessel_name_normalized: w.vessel_name_normalized,
+        ...commonFields,
         shipment_reference: ref,
-        container_source: w.container_source,
-        notification_enabled: w.notification_enabled,
-        eta,
-        etd,
-        previous_eta,
-        previous_etd,
-        eta_change_days,
-        etd_change_days,
-        vessel_terminal,
         container_no: containerNo,
         terminal: status?.terminal ?? null,
         provider: status?.provider ?? null,
