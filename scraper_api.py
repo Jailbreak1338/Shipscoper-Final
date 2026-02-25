@@ -6,7 +6,10 @@ import traceback
 import uuid
 from datetime import datetime
 
+from dotenv import load_dotenv
 from flask import Flask, jsonify, request
+
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -151,10 +154,12 @@ def _run_check_containers(job_id: str):
     """Run checkContainers.ts Node.js job in a background thread."""
     import subprocess
 
+    # On Windows, npx is a .cmd file and won't be found as a bare "npx" in subprocess.
+    npx_cmd = "npx.cmd" if os.name == "nt" else "npx"
     script_dir = os.path.dirname(os.path.abspath(__file__))
     try:
         result = subprocess.run(
-            ["npx", "tsx", "src/jobs/checkContainers.ts"],
+            [npx_cmd, "tsx", "src/jobs/checkContainers.ts"],
             capture_output=True,
             text=True,
             timeout=300,

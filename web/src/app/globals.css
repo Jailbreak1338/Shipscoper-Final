@@ -1,45 +1,142 @@
-:root {
-  --bg-app: #f5f7fa;
-  --text-primary: #1a1a2e;
-  --text-secondary: #64748b;
-  --surface: #ffffff;
-  --surface-muted: #f8fafc;
-  --border: #e5e7eb;
-  --border-strong: #cbd5e1;
-  --header-bg: #1a1a2e;
-  --header-link: rgba(255, 255, 255, 0.8);
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ── Brand palette (hex reference) ───────────────────
+       ink    #0D1117  hsl(215 28%  7%)
+       navy   #1E3A5F  hsl(214 52% 25%)
+       signal #00C9A7  hsl(170 100% 40%)
+       sky    #2E86C1  hsl(204 62% 47%)
+       paper  #F2F4F6  hsl(210 19% 96%)
+       mist   #8FA3B1  hsl(205 18% 63%)
+    ─────────────────────────────────────────────────────── */
+
+    --background:           215 28% 7%;
+    --foreground:           0 0% 100%;
+
+    --card:                 215 25% 10%;
+    --card-foreground:      0 0% 100%;
+
+    --popover:              215 25% 10%;
+    --popover-foreground:   0 0% 100%;
+
+    --primary:              170 100% 40%;   /* signal #00C9A7 */
+    --primary-foreground:   215 28% 7%;     /* ink — readable on signal */
+
+    --secondary:            214 52% 25%;    /* navy #1E3A5F */
+    --secondary-foreground: 0 0% 100%;
+
+    --muted:                215 28% 13%;
+    --muted-foreground:     205 18% 63%;    /* mist #8FA3B1 */
+
+    --accent:               214 40% 18%;
+    --accent-foreground:    0 0% 100%;
+
+    --destructive:          0 63% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border:               214 25% 17%;
+    --input:                214 25% 17%;
+    --ring:                 170 100% 40%;   /* signal */
+
+    --radius: 0.625rem;
+
+    --sidebar:                   215 32% 5%;
+    --sidebar-foreground:        0 0% 100%;
+    --sidebar-border:            214 25% 13%;
+    --sidebar-accent:            214 30% 12%;
+    --sidebar-accent-foreground: 0 0% 100%;
+  }
 }
 
-:root[data-theme='dark'] {
-  --bg-app: #0f172a;
-  --text-primary: #e2e8f0;
-  --text-secondary: #94a3b8;
-  --surface: #111827;
-  --surface-muted: #1f2937;
-  --border: #374151;
-  --border-strong: #475569;
-  --header-bg: #020617;
-  --header-link: #cbd5e1;
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'DM Sans', sans-serif;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    background-color: #0D1117;
+    color: #ffffff;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0D1117;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(214 25% 17%);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(205 18% 63%);
+  }
 }
 
-html,
-body {
-  margin: 0;
-  min-height: 100%;
-}
+@layer utilities {
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
 
-body {
-  background: var(--bg-app);
-  color: var(--text-primary);
-  transition: background-color 0.2s ease, color 0.2s ease;
-}
+  .animate-spin-slow {
+    animation: spin 1.2s linear infinite;
+  }
 
-a {
-  color: inherit;
-}
+  @keyframes gridDrift {
+    0%   { transform: translateY(0); }
+    100% { transform: translateY(60px); }
+  }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+  @keyframes pulseDot {
+    0%, 100% { opacity: 0.8; transform: scale(1); }
+    50%       { opacity: 0.3; transform: scale(0.7); }
+  }
+
+  @keyframes pulseRing {
+    0%   { transform: scale(1); opacity: 0.6; }
+    100% { transform: scale(3); opacity: 0; }
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-grid-drift { animation: gridDrift 20s linear infinite; }
+  .animate-pulse-dot  { animation: pulseDot  3s ease-in-out infinite; }
+  .animate-pulse-ring { animation: pulseRing 3s ease-out  infinite; }
+  .animate-fade-up    { animation: fadeUp 0.8s ease forwards; opacity: 0; }
+
+  .delay-200  { animation-delay: 0.2s; }
+  .delay-400  { animation-delay: 0.4s; }
+  .delay-600  { animation-delay: 0.6s; }
+  .delay-800  { animation-delay: 0.8s; }
+
+  .feature-card { opacity: 0; }
+  .feature-card.in-view { animation: fadeUp 0.7s ease forwards; }
+
+  .landing-grid {
+    background-image:
+      linear-gradient(rgba(0,201,167,.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,201,167,.07) 1px, transparent 1px);
+    background-size: 64px 64px;
   }
 }

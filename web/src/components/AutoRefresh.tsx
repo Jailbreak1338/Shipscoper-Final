@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { RefreshCw } from 'lucide-react';
 
 export default function AutoRefresh({ intervalMs = 15000 }: { intervalMs?: number }) {
   const router = useRouter();
@@ -14,53 +15,26 @@ export default function AutoRefresh({ intervalMs = 15000 }: { intervalMs?: numbe
       setLastRefresh(new Date());
       setRefreshTick((t) => t + 1);
     }, intervalMs);
-
     return () => window.clearInterval(timer);
   }, [intervalMs, router]);
 
   useEffect(() => {
-    // In production some browser/app-router combinations can keep stale RSC payloads.
-    // Force a hard reload every 4 refresh cycles as a safety net.
     if (refreshTick > 0 && refreshTick % 4 === 0) {
       window.location.reload();
     }
   }, [refreshTick]);
 
   return (
-    <div style={styles.wrap}>
-      <span>
-        Letzte Aktualisierung: {lastRefresh.toLocaleTimeString('de-DE')}
-      </span>
+    <div className="flex items-center gap-3 mb-5 text-xs text-muted-foreground">
+      <span>Letzte Aktualisierung: {lastRefresh.toLocaleTimeString('de-DE')}</span>
       <button
         type="button"
-        style={styles.btn}
-        onClick={() => {
-          router.refresh();
-          setLastRefresh(new Date());
-        }}
+        onClick={() => { router.refresh(); setLastRefresh(new Date()); }}
+        className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
       >
-        Jetzt aktualisieren
+        <RefreshCw className="h-3 w-3" />
+        Aktualisieren
       </button>
     </div>
   );
 }
-
-const styles: Record<string, CSSProperties> = {
-  wrap: {
-    marginBottom: '12px',
-    display: 'flex',
-    gap: '10px',
-    alignItems: 'center',
-    color: '#64748b',
-    fontSize: '13px',
-  },
-  btn: {
-    border: '1px solid #cbd5e1',
-    backgroundColor: '#fff',
-    borderRadius: '6px',
-    padding: '4px 8px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    color: '#334155',
-  },
-};

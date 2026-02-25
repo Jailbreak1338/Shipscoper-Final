@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { normalizeVesselName } from '@/lib/normalize';
+import { sendResendEmail, buildWatchlistEmail } from '@/lib/resend';
 
 
 function parseShipmentRefs(input: string | null | undefined): string[] {
@@ -22,7 +23,7 @@ async function isShipmentRefAlreadyAssigned(
     .select('vessel_name_normalized, shipment_reference')
     .eq('user_id', userId);
 
-  for (const row of data ?? []) {
+  for (const row of (data ?? []) as Array<{ vessel_name_normalized: string; shipment_reference: string | null }>) {
     if (allowedVesselNormalized && row.vessel_name_normalized === allowedVesselNormalized) continue;
     const refs = parseShipmentRefs(row.shipment_reference);
     if (refs.includes(shipmentRef)) {
@@ -78,6 +79,27 @@ export async function GET() {
       }
     } catch {
       // Non-fatal: fall back to stored last_known_eta
+    }
+
+    // Enrich with container statuses from container_latest_status
+    try {
+      const watchIds = (data ?? []).map((w) => w.id);
+      if (watchIds.length > 0) {
+        const { data: statuses } = await admin
+          .from('container_latest_status')
+          .select('watch_id, container_no, normalized_status, status_raw, terminal, updated_at, ready_for_loading, discharge_order_status')
+          .in('watch_id', watchIds);
+        const statusMap = new Map<string, typeof statuses>();
+        for (const s of (statuses ?? [])) {
+          if (!statusMap.has(s.watch_id)) statusMap.set(s.watch_id, []);
+          statusMap.get(s.watch_id)!.push(s);
+        }
+        for (const watch of data ?? []) {
+          (watch as Record<string, unknown>).container_statuses = statusMap.get(watch.id) ?? [];
+        }
+      }
+    } catch {
+      // Non-fatal
     }
   }
 
@@ -198,6 +220,20 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: updateErr.message }, { status: 500 });
           }
 
+          // Email: watch updated with new S-Nr.
+          if (session.user.email) {
+            sendResendEmail({
+              to: session.user.email,
+              subject: `Watch aktualisiert: ${vesselName}`,
+              html: buildWatchlistEmail({
+                vesselName,
+                shipmentReference: shipmentReference,
+                eta: currentEta,
+                isUpdate: true,
+              }),
+            }).catch((e) => console.error('[watchlist] email error:', e));
+          }
+
           return NextResponse.json({ watch: updated, updatedExisting: true }, { status: 200 });
         }
       }
@@ -206,6 +242,20 @@ export async function POST(request: NextRequest) {
     }
     console.error('Failed to add watch:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Email: new watch created
+  if (session.user.email) {
+    sendResendEmail({
+      to: session.user.email,
+      subject: `Watch aktiviert: ${vesselName}`,
+      html: buildWatchlistEmail({
+        vesselName,
+        shipmentReference,
+        eta: currentEta,
+        isUpdate: false,
+      }),
+    }).catch((e) => console.error('[watchlist] email error:', e));
   }
 
   return NextResponse.json({ watch: data }, { status: 201 });

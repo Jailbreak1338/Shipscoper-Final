@@ -1,6 +1,45 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Eye,
+  Plus,
+  Trash2,
+  Bell,
+  BellOff,
+  Search,
+  Mail,
+  Loader2,
+  AlertCircle,
+  Ship,
+  X,
+  RefreshCw,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
+
+interface ContainerStatus {
+  container_no: string;
+  normalized_status: 'PREANNOUNCED' | 'DISCHARGED' | 'READY' | 'DELIVERED_OUT';
+  status_raw: string | null;
+  terminal: string | null;
+  updated_at: string;
+  ready_for_loading: boolean | null;
+  discharge_order_status: string | null;
+}
 
 interface Watch {
   id: string;
@@ -12,6 +51,23 @@ interface Watch {
   notification_enabled: boolean;
   created_at: string;
   last_notified_at: string | null;
+  container_statuses?: ContainerStatus[];
+}
+
+function StatusBadge({ status }: { status: ContainerStatus['normalized_status'] | 'UNKNOWN' }) {
+  const map: Record<string, { label: string; className: string }> = {
+    PREANNOUNCED:  { label: 'Avisiert',       className: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30' },
+    DISCHARGED:    { label: 'Entladen',       className: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30' },
+    READY:         { label: 'Abnahmebereit',  className: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
+    DELIVERED_OUT: { label: 'Ausgeliefert',   className: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+    UNKNOWN:       { label: 'Nicht avisiert', className: 'bg-muted/50 text-muted-foreground border-border' },
+  };
+  const { label, className } = map[status] ?? map.UNKNOWN;
+  return (
+    <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-xs font-medium ${className}`}>
+      {label}
+    </span>
+  );
 }
 
 interface VesselSuggestion {
@@ -23,16 +79,17 @@ export default function WatchlistPage() {
   const [watches, setWatches] = useState<Watch[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-
   const [vesselName, setVesselName] = useState('');
   const [adding, setAdding] = useState(false);
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
   const [testEmailMessage, setTestEmailMessage] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState('');
   const [watchSearch, setWatchSearch] = useState('');
-
   const [suggestions, setSuggestions] = useState<VesselSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const blurTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchWatches = async () => {
     try {
@@ -49,14 +106,12 @@ export default function WatchlistPage() {
 
   useEffect(() => {
     fetchWatches();
-  }, []);
+    autoRefreshRef.current = setInterval(fetchWatches, 3 * 60 * 1000);
+    return () => { if (autoRefreshRef.current) clearInterval(autoRefreshRef.current); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (vesselName.trim().length < 2) {
-      setSuggestions([]);
-      return;
-    }
-
+    if (vesselName.trim().length < 2) { setSuggestions([]); return; }
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(`/api/vessels/search?q=${encodeURIComponent(vesselName.trim())}`);
@@ -66,49 +121,44 @@ export default function WatchlistPage() {
           setSuggestions(vessels);
           setShowSuggestions(vessels.length > 0);
         }
-      } catch {
-        // Ignore autocomplete failures.
-      }
+      } catch { /* ignore */ }
     }, 300);
-
     return () => clearTimeout(timer);
   }, [vesselName]);
 
-
-  const filteredWatches = watches.filter((watch) => {
-    const query = watchSearch.trim().toLowerCase();
-    if (!query) return true;
-    return (
-      watch.vessel_name.toLowerCase().includes(query) ||
-      (watch.shipment_reference || '').toLowerCase().includes(query) ||
-      (watch.container_reference || '').toLowerCase().includes(query)
-    );
-  });
+  const filteredWatches = watches
+    .filter((watch) => {
+      const q = watchSearch.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        watch.vessel_name.toLowerCase().includes(q) ||
+        (watch.shipment_reference || '').toLowerCase().includes(q) ||
+        (watch.container_reference || '').toLowerCase().includes(q)
+      );
+    })
+    .sort((a, b) => {
+      if (!a.last_known_eta && !b.last_known_eta) return 0;
+      if (!a.last_known_eta) return 1;
+      if (!b.last_known_eta) return -1;
+      return Date.parse(a.last_known_eta) - Date.parse(b.last_known_eta);
+    });
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!vesselName.trim()) return;
     setAdding(true);
     setError('');
-
     try {
       const res = await fetch('/api/watchlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          vesselName: vesselName.trim(),
-        }),
+        body: JSON.stringify({ vesselName: vesselName.trim() }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to add vessel');
-
       setWatches((prev) => {
         const idx = prev.findIndex((w) => w.id === json.watch.id);
-        if (idx >= 0) {
-          const copy = [...prev];
-          copy[idx] = json.watch;
-          return copy;
-        }
+        if (idx >= 0) { const copy = [...prev]; copy[idx] = json.watch; return copy; }
         return [json.watch, ...prev];
       });
       setVesselName('');
@@ -126,15 +176,13 @@ export default function WatchlistPage() {
       const res = await fetch(`/api/watchlist/${watch.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          notification_enabled: !watch.notification_enabled,
-        }),
+        body: JSON.stringify({ notification_enabled: !watch.notification_enabled }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to update watch');
+      if (!res.ok) throw new Error(json.error || 'Failed to update');
       setWatches((prev) => prev.map((w) => (w.id === watch.id ? json.watch : w)));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to update watch');
+      setError(err instanceof Error ? err.message : 'Failed to update');
     }
   };
 
@@ -142,13 +190,10 @@ export default function WatchlistPage() {
     if (!confirm('Vessel von der Watchlist entfernen?')) return;
     try {
       const res = await fetch(`/api/watchlist/${id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const json = await res.json();
-        throw new Error(json.error || 'Failed to delete watch');
-      }
+      if (!res.ok) { const json = await res.json(); throw new Error(json.error || 'Failed to delete'); }
       setWatches((prev) => prev.filter((w) => w.id !== id));
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to delete watch');
+      setError(err instanceof Error ? err.message : 'Failed to delete');
     }
   };
 
@@ -160,11 +205,8 @@ export default function WatchlistPage() {
       const res = await fetch('/api/watchlist/test-email', { method: 'POST' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Test email failed');
-
       const target = typeof json.email === 'string' ? json.email : 'deine hinterlegte E-Mail';
-      setTestEmailMessage(`Test-E-Mail wird gesendet an ${target} — prüfe dein Postfach in ~30 Sekunden.`);
-
-      // Check actual send status after 5s (scraper runs in background)
+      setTestEmailMessage(`Test-E-Mail wird gesendet an ${target}`);
       const jobId = typeof json.jobId === 'string' ? json.jobId : null;
       if (jobId) {
         setTimeout(async () => {
@@ -172,19 +214,13 @@ export default function WatchlistPage() {
             const statusRes = await fetch(`/api/watchlist/test-email-status?jobId=${encodeURIComponent(jobId)}`);
             const statusJson = await statusRes.json();
             if (statusJson.status === 'sent') {
-              setTestEmailMessage(`E-Mail erfolgreich gesendet an ${target}. Bitte auch Spam-Ordner prüfen.`);
-              setTimeout(() => setTestEmailMessage(''), 10000);
+              setTestEmailMessage(`E-Mail erfolgreich gesendet an ${target}.`);
+              setTimeout(() => setTestEmailMessage(''), 8000);
             } else if (statusJson.status === 'failed') {
-              const errMsg = typeof statusJson.error === 'string'
-                ? statusJson.error.split('\n').slice(-3).join(' ')
-                : 'SMTP-Fehler';
-              setError(`Test-E-Mail fehlgeschlagen: ${errMsg}`);
+              setError(`Test-E-Mail fehlgeschlagen: ${statusJson.error ?? 'SMTP-Fehler'}`);
               setTestEmailMessage('');
             }
-            // status 'running' or 'unknown' → keep the "wird gesendet" message
-          } catch {
-            // ignore status check errors, keep the "wird gesendet" message
-          }
+          } catch { /* ignore */ }
         }, 5000);
       } else {
         setTimeout(() => setTestEmailMessage(''), 8000);
@@ -196,331 +232,271 @@ export default function WatchlistPage() {
     }
   };
 
+  const handleRefreshStatus = async () => {
+    setRefreshing(true);
+    setRefreshMessage('');
+    setError('');
+    try {
+      const res = await fetch('/api/container-refresh', { method: 'POST' });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || 'Fehler beim Starten des Checks');
+      }
+      setRefreshMessage('Status-Check gestartet — Ergebnisse in ~60 Sek…');
+      setTimeout(async () => {
+        await fetchWatches();
+        setRefreshMessage('');
+        setRefreshing(false);
+      }, 65000);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Refresh fehlgeschlagen');
+      setRefreshing(false);
+    }
+  };
+
   const formatEta = (iso: string | null) => {
-    if (!iso) return '-';
-    return new Date(iso).toLocaleDateString('de-DE', {
-      timeZone: 'Europe/Berlin',
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    });
+    if (!iso) return '—';
+    return new Date(iso).toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin', day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 
   const formatDate = (iso: string) =>
-    new Date(iso).toLocaleString('de-DE', {
-      timeZone: 'Europe/Berlin',
-    });
+    new Date(iso).toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin', day: '2-digit', month: '2-digit', year: 'numeric' });
 
   return (
-    <div style={styles.container}>
-      <h1 style={styles.pageTitle}>Vessel Watchlist</h1>
-      <p style={styles.subtitle}>
-        Vessels beobachten; S-Nr. werden automatisch über Excel-Uploads zugeordnet.
-      </p>
-
-      <div style={{ marginBottom: '14px' }}>
-        <button
-          onClick={handleSendTestEmail}
-          disabled={sendingTestEmail}
-          style={styles.btnTestEmail}
-        >
-          {sendingTestEmail ? 'Sende Test-E-Mail...' : 'Test-E-Mail senden'}
-        </button>
-        {testEmailMessage && (
-          <div style={styles.testEmailMsg}>{testEmailMessage}</div>
-        )}
+    <div className="max-w-6xl mx-auto p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Vessel Watchlist</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Vessels beobachten · S-Nr. werden automatisch über Excel-Uploads zugeordnet
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefreshStatus}
+            disabled={refreshing}
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Status abrufen
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSendTestEmail}
+            disabled={sendingTestEmail}
+          >
+            {sendingTestEmail ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Mail className="h-4 w-4" />
+            )}
+            Test-E-Mail
+          </Button>
+        </div>
       </div>
 
-      <form onSubmit={handleAdd} style={styles.form}>
-        <div style={styles.formRow}>
-          <div style={styles.autocompleteWrap}>
-            <input
-              type="text"
-              placeholder="Vessel Name (z.B. EVER GIVEN)"
-              value={vesselName}
-              onChange={(e) => setVesselName(e.target.value)}
-              onFocus={() => {
-                if (suggestions.length > 0) setShowSuggestions(true);
-              }}
-              onBlur={() => {
-                blurTimeout.current = setTimeout(() => setShowSuggestions(false), 150);
-              }}
-              style={styles.input}
-              autoComplete="off"
-              required
-            />
-            {showSuggestions && suggestions.length > 0 && (
-              <div style={styles.dropdown}>
-                {suggestions.map((v) => (
-                  <div
-                    key={v.name_normalized}
-                    style={styles.dropdownItem}
-                    onMouseDown={() => {
-                      if (blurTimeout.current) clearTimeout(blurTimeout.current);
-                      setVesselName(v.name);
-                      setSuggestions([]);
-                      setShowSuggestions(false);
-                    }}
-                  >
-                    {v.name}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <button type="submit" disabled={adding} style={styles.btnAdd}>
-            {adding ? 'Wird hinzugefügt...' : 'Hinzufügen'}
-          </button>
-        </div>
-      </form>
+      {refreshMessage && (
+        <Alert>
+          <RefreshCw className="h-4 w-4 animate-spin" />
+          <AlertDescription>{refreshMessage}</AlertDescription>
+        </Alert>
+      )}
+
+      {testEmailMessage && (
+        <Alert variant="success">
+          <Mail className="h-4 w-4" />
+          <AlertDescription>{testEmailMessage}</AlertDescription>
+        </Alert>
+      )}
 
       {error && (
-        <div style={styles.error}>
-          {error}
-          <button onClick={() => setError('')} style={styles.errorClose}>
-            x
-          </button>
-        </div>
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="flex items-center justify-between">
+            {error}
+            <button type="button" aria-label="Fehler schließen" onClick={() => setError('')} className="ml-2 hover:opacity-70">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </AlertDescription>
+        </Alert>
       )}
 
-      <div style={styles.searchRow}>
-        <input
-          type="text"
-          value={watchSearch}
-          onChange={(e) => setWatchSearch(e.target.value)}
-          placeholder="Watchlist durchsuchen (Vessel oder S-Nr.)"
-          style={styles.input}
-        />
-      </div>
+      {/* Add Vessel */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Vessel hinzufügen</CardTitle>
+          <CardDescription>Name eingeben — Autocomplete aus Datenbank</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleAdd}>
+            <div className="flex gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Vessel Name (z.B. EVER GIVEN)"
+                  value={vesselName}
+                  onChange={(e) => setVesselName(e.target.value)}
+                  onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
+                  onBlur={() => { blurTimeout.current = setTimeout(() => setShowSuggestions(false), 150); }}
+                  className="pl-9"
+                  autoComplete="off"
+                  required
+                />
+                {showSuggestions && suggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 z-20 mt-1 rounded-md border border-border bg-popover shadow-lg overflow-hidden">
+                    {suggestions.map((v) => (
+                      <div
+                        key={v.name_normalized}
+                        className="flex items-center gap-2 px-3 py-2.5 text-sm cursor-pointer hover:bg-accent transition-colors"
+                        onMouseDown={() => {
+                          if (blurTimeout.current) clearTimeout(blurTimeout.current);
+                          setVesselName(v.name);
+                          setSuggestions([]);
+                          setShowSuggestions(false);
+                        }}
+                      >
+                        <Ship className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        {v.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <Button type="submit" disabled={adding || !vesselName.trim()}>
+                {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Hinzufügen
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
 
-      {loading && <p style={styles.loadingText}>Watchlist wird geladen...</p>}
-
-      {!loading && filteredWatches.length === 0 && (
-        <div style={styles.empty}>
-          <p style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>
-            Noch keine Vessels auf der Watchlist
-          </p>
-          <p style={{ margin: '8px 0 0', color: 'var(--text-secondary)' }}>
-            Füge oben ein Vessel hinzu, um bei ETA-Änderungen benachrichtigt zu werden.
-          </p>
-        </div>
-      )}
-
-      {filteredWatches.length > 0 && (
-        <div style={styles.tableWrap}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Vessel</th>
-                <th style={styles.th}>Sendung</th>
-                <th style={styles.th}>Container</th>
-                <th style={styles.th}>Letzte ETA</th>
-                <th style={styles.th}>Benachrichtigung</th>
-                <th style={styles.th}>Hinzugefügt</th>
-                <th style={styles.th}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredWatches.map((watch) => (
-                <tr key={watch.id}>
-                  <td style={{ ...styles.td, fontWeight: 600 }}>{watch.vessel_name}</td>
-                  <td style={styles.td}>{watch.shipment_reference || '-'}</td>
-                  <td style={styles.td}>{watch.container_reference || '-'}</td>
-                  <td style={styles.td}>{formatEta(watch.last_known_eta)}</td>
-                  <td style={styles.td}>
-                    <button
-                      onClick={() => handleToggleNotification(watch)}
-                      style={{
-                        ...styles.btnToggle,
-                        backgroundColor: watch.notification_enabled ? 'rgba(34,197,94,0.2)' : 'var(--surface-muted)',
-                        color: watch.notification_enabled ? '#22c55e' : 'var(--text-secondary)',
-                      }}
-                    >
-                      {watch.notification_enabled ? 'Aktiv' : 'Aus'}
-                    </button>
-                  </td>
-                  <td style={{ ...styles.td, color: 'var(--text-secondary)', fontSize: '13px' }}>
-                    {formatDate(watch.created_at)}
-                  </td>
-                  <td style={styles.td}>
-                    <button onClick={() => handleDelete(watch.id)} style={styles.btnDelete}>
-                      Entfernen
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {/* Watchlist Table */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle className="text-base">Meine Watchlist</CardTitle>
+              <CardDescription>{watches.length} Vessels beobachtet</CardDescription>
+            </div>
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                type="text"
+                value={watchSearch}
+                onChange={(e) => setWatchSearch(e.target.value)}
+                placeholder="Suchen…"
+                className="pl-8 h-8 text-sm"
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Watchlist wird geladen…
+            </div>
+          ) : filteredWatches.length === 0 ? (
+            <div className="text-center py-12">
+              <Eye className="h-8 w-8 text-muted-foreground mx-auto mb-3 opacity-50" />
+              <p className="font-medium text-foreground">Noch keine Vessels</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {watchSearch ? 'Keine Treffer für diese Suche.' : 'Füge oben ein Vessel hinzu.'}
+              </p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Vessel</TableHead>
+                  <TableHead>Sendung</TableHead>
+                  <TableHead>Container</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Letzte ETA</TableHead>
+                  <TableHead>Benachrichtigung</TableHead>
+                  <TableHead>Hinzugefügt</TableHead>
+                  <TableHead className="w-12" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredWatches.map((watch) => (
+                  <TableRow key={watch.id}>
+                    <TableCell className="font-semibold">{watch.vessel_name}</TableCell>
+                    <TableCell>
+                      {watch.shipment_reference ? (
+                        <Badge variant="secondary" className="font-mono text-xs">
+                          {watch.shipment_reference}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {watch.container_reference ? (
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {watch.container_reference.split(',').length > 1
+                            ? `${watch.container_reference.split(',')[0].trim()} +${watch.container_reference.split(',').length - 1}`
+                            : watch.container_reference}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {watch.container_reference ? (
+                        <div className="flex flex-wrap gap-1">
+                          {(watch.container_statuses ?? []).length > 0 ? (
+                            (watch.container_statuses ?? []).map((cs) => (
+                              <div key={cs.container_no} className="flex flex-col gap-0.5">
+                                <StatusBadge status={cs.normalized_status} />
+                                <span className="font-mono text-[10px] text-muted-foreground">{cs.container_no}</span>
+                              </div>
+                            ))
+                          ) : (
+                            <StatusBadge status="UNKNOWN" />
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm">{formatEta(watch.last_known_eta)}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={watch.notification_enabled}
+                          onCheckedChange={() => handleToggleNotification(watch)}
+                        />
+                        <span className={cn('text-xs font-medium', watch.notification_enabled ? 'text-emerald-400' : 'text-muted-foreground')}>
+                          {watch.notification_enabled ? 'Aktiv' : 'Aus'}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {formatDate(watch.created_at)}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => handleDelete(watch.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
-
-const styles: Record<string, CSSProperties> = {
-  container: {
-    padding: '32px 24px',
-    maxWidth: '1100px',
-    margin: '0 auto',
-  },
-  pageTitle: {
-    margin: '0 0 4px',
-    fontSize: '24px',
-    fontWeight: 700,
-  },
-  subtitle: {
-    margin: '0 0 24px',
-    color: 'var(--text-secondary)',
-    fontSize: '14px',
-  },
-  form: {
-    marginBottom: '24px',
-  },
-  searchRow: {
-    marginBottom: '12px',
-  },
-  formRow: {
-    display: 'flex',
-    gap: '12px',
-    flexWrap: 'wrap',
-  },
-  autocompleteWrap: {
-    position: 'relative',
-    flex: 1,
-    minWidth: '200px',
-  },
-  input: {
-    flex: 1,
-    minWidth: '200px',
-    padding: '10px 14px',
-    fontSize: '14px',
-    border: '1px solid var(--border)',
-    borderRadius: '8px',
-    outline: 'none',
-    backgroundColor: 'var(--surface)',
-    color: 'var(--text-primary)',
-  },
-  dropdown: {
-    position: 'absolute',
-    top: '100%',
-    left: 0,
-    right: 0,
-    backgroundColor: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: '8px',
-    marginTop: '4px',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-    zIndex: 10,
-    maxHeight: '240px',
-    overflowY: 'auto',
-  },
-  dropdownItem: {
-    padding: '10px 14px',
-    fontSize: '14px',
-    cursor: 'pointer',
-    borderBottom: '1px solid var(--border)',
-  },
-  btnAdd: {
-    padding: '10px 20px',
-    backgroundColor: '#0066cc',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '8px',
-    fontWeight: 600,
-    fontSize: '14px',
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-  btnTestEmail: {
-    padding: '10px 14px',
-    backgroundColor: '#0ea5e9',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '13px',
-    fontWeight: 600,
-    cursor: 'pointer',
-  },
-  testEmailMsg: {
-    marginTop: '8px',
-    fontSize: '13px',
-    color: '#0369a1',
-    backgroundColor: '#e0f2fe',
-    border: '1px solid #bae6fd',
-    borderRadius: '6px',
-    padding: '8px 12px',
-  },
-  error: {
-    padding: '12px 16px',
-    backgroundColor: 'var(--surface-muted)',
-    border: '1px solid #fecaca',
-    borderRadius: '8px',
-    color: '#ef4444',
-    fontSize: '14px',
-    marginBottom: '16px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  errorClose: {
-    background: 'none',
-    border: 'none',
-    color: '#ef4444',
-    fontSize: '16px',
-    cursor: 'pointer',
-    padding: '0 4px',
-  },
-  loadingText: {
-    textAlign: 'center',
-    color: 'var(--text-secondary)',
-    padding: '32px',
-  },
-  empty: {
-    textAlign: 'center',
-    padding: '48px 24px',
-    backgroundColor: 'var(--surface)',
-    borderRadius: '12px',
-    border: '1px solid var(--border)',
-  },
-  tableWrap: {
-    backgroundColor: 'var(--surface)',
-    borderRadius: '12px',
-    border: '1px solid var(--border)',
-    overflow: 'auto',
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-  },
-  th: {
-    padding: '12px 16px',
-    textAlign: 'left',
-    fontWeight: 600,
-    fontSize: '13px',
-    color: 'var(--text-secondary)',
-    borderBottom: '1px solid var(--border)',
-    whiteSpace: 'nowrap',
-  },
-  td: {
-    padding: '12px 16px',
-    borderBottom: '1px solid var(--border)',
-    fontSize: '14px',
-  },
-  btnToggle: {
-    padding: '4px 12px',
-    border: 'none',
-    borderRadius: '6px',
-    fontSize: '13px',
-    fontWeight: 600,
-    cursor: 'pointer',
-  },
-  btnDelete: {
-    padding: '4px 12px',
-    backgroundColor: 'var(--surface-muted)',
-    color: '#ef4444',
-    border: '1px solid #fecaca',
-    borderRadius: '6px',
-    fontSize: '13px',
-    cursor: 'pointer',
-  },
-};

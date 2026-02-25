@@ -1,7 +1,22 @@
 'use client';
 
-import { useState, useEffect, type CSSProperties } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Loader2, UserPlus, Trash2, CheckCircle2, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface User {
   id: string;
@@ -13,340 +28,234 @@ interface User {
 }
 
 export default function AdminUsersPage() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newUser, setNewUser] = useState({
-    email: '',
-    password: '',
-    role: 'user' as 'admin' | 'user',
-  });
-  const [createdCredentials, setCreatedCredentials] = useState<{
-    email: string;
-    password: string;
-  } | null>(null);
-  const [error, setError] = useState('');
+  const [users, setUsers]               = useState<User[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [showModal, setShowModal]       = useState(false);
+  const [email, setEmail]               = useState('');
+  const [role, setRole]                 = useState<'admin' | 'user'>('user');
+  const [submitting, setSubmitting]     = useState(false);
+  const [invited, setInvited]           = useState<string | null>(null);
+  const [error, setError]               = useState('');
   const router = useRouter();
 
-  useEffect(() => {
-    fetchUsers();
-  }, []);
+  useEffect(() => { fetchUsers(); }, []);
 
   const fetchUsers = async () => {
     try {
       const res = await fetch('/api/admin/users');
-      if (res.status === 403) {
-        router.push('/eta-updater');
-        return;
-      }
+      if (res.status === 403) { router.push('/eta-updater'); return; }
       const data = await res.json();
-      setUsers(data.users || []);
-    } catch (err) {
-      console.error('Error fetching users:', err);
-    } finally {
-      setLoading(false);
-    }
+      setUsers(data.users ?? []);
+    } catch { /* ignore */ } finally { setLoading(false); }
   };
 
-  const handleCreateUser = async (e: React.FormEvent) => {
+  const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSubmitting(true);
     try {
       const res = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newUser),
+        body: JSON.stringify({ email, role }),
       });
-
       const data = await res.json();
-
-      if (res.ok) {
-        setCreatedCredentials(data.credentials);
-        setNewUser({ email: '', password: '', role: 'user' });
-        fetchUsers();
-      } else {
-        setError(data.error || 'Failed to create user');
-      }
-    } catch {
-      setError('Network error');
+      if (!res.ok) throw new Error(data.error ?? 'Fehler');
+      setInvited(email);
+      setEmail('');
+      setRole('user');
+      fetchUsers();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Fehler');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleChangeRole = async (
-    userId: string,
-    newRole: 'admin' | 'user'
-  ) => {
+  const handleChangeRole = async (userId: string, newRole: 'admin' | 'user') => {
     if (!confirm(`Rolle zu "${newRole}" ändern?`)) return;
-
-    try {
-      const res = await fetch('/api/admin/users', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, role: newRole }),
-      });
-
-      if (res.ok) {
-        fetchUsers();
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to update role');
-      }
-    } catch {
-      alert('Network error');
-    }
+    const res = await fetch('/api/admin/users', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, role: newRole }),
+    });
+    if (res.ok) fetchUsers();
+    else { const d = await res.json(); alert(d.error ?? 'Fehler'); }
   };
 
-  const handleDeleteUser = async (userId: string, email: string) => {
-    if (!confirm(`User "${email}" löschen? Dies kann nicht rückgängig gemacht werden.`))
-      return;
-
-    try {
-      const res = await fetch(`/api/admin/users?userId=${userId}`, {
-        method: 'DELETE',
-      });
-
-      if (res.ok) {
-        fetchUsers();
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to delete user');
-      }
-    } catch {
-      alert('Network error');
-    }
+  const handleDelete = async (userId: string, userEmail: string) => {
+    if (!confirm(`Benutzer "${userEmail}" löschen?`)) return;
+    const res = await fetch(`/api/admin/users?userId=${userId}`, { method: 'DELETE' });
+    if (res.ok) fetchUsers();
+    else { const d = await res.json(); alert(d.error ?? 'Fehler'); }
   };
 
-  const generatePassword = () => {
-    const chars =
-      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%&*';
-    let pw = '';
-    for (let i = 0; i < 16; i++) {
-      pw += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    setNewUser((prev) => ({ ...prev, password: pw }));
-  };
+  const closeModal = () => { setShowModal(false); setInvited(null); setError(''); setEmail(''); setRole('user'); };
 
-  if (loading) {
-    return (
-      <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
-        Lade Benutzer...
-      </div>
-    );
-  }
+  const SELECT_CLS = 'h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring';
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-24 text-muted-foreground gap-2">
+      <Loader2 className="h-4 w-4 animate-spin" /> Lade Benutzer…
+    </div>
+  );
 
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
+    <div className="max-w-5xl mx-auto p-6 space-y-6">
+
+      {/* Header */}
+      <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 style={styles.title}>Benutzerverwaltung</h1>
-          <p style={styles.subtitle}>{users.length} Benutzer registriert</p>
+          <h1 className="text-2xl font-bold text-foreground">Benutzerverwaltung</h1>
+          <p className="text-sm text-muted-foreground mt-1">{users.length} Benutzer registriert</p>
         </div>
-        <button
-          onClick={() => {
-            setShowCreateModal(true);
-            setCreatedCredentials(null);
-            setError('');
-          }}
-          style={styles.btnPrimary}
-        >
-          + Neuer Benutzer
-        </button>
+        <Button onClick={() => { setShowModal(true); setInvited(null); setError(''); }} className="gap-2">
+          <UserPlus className="h-4 w-4" />
+          Neuer Benutzer
+        </Button>
       </div>
 
-      {/* Users Table */}
-      <div style={styles.tableWrap}>
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              <th style={styles.th}>Email</th>
-              <th style={styles.th}>Rolle</th>
-              <th style={styles.th}>Uploads</th>
-              <th style={styles.th}>Erstellt</th>
-              <th style={styles.th}>Letzter Login</th>
-              <th style={{ ...styles.th, textAlign: 'right' }}>Aktionen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((user) => (
-              <tr key={user.id}>
-                <td style={styles.td}>{user.email}</td>
-                <td style={styles.td}>
-                  <span
-                    style={{
-                      ...styles.badge,
-                      backgroundColor:
-                        user.role === 'admin' ? '#fef2f2' : '#f0fdf4',
-                      color: user.role === 'admin' ? '#b91c1c' : '#15803d',
-                      border: `1px solid ${user.role === 'admin' ? '#fecaca' : '#bbf7d0'}`,
-                    }}
+      {/* Users table */}
+      <Card className="overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="text-xs uppercase tracking-wide">E-Mail</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Rolle</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Uploads</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Erstellt</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Letzter Login</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide text-right">Aktionen</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {users.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-10 text-muted-foreground text-sm">
+                  Keine Benutzer vorhanden.
+                </TableCell>
+              </TableRow>
+            ) : users.map((u) => (
+              <TableRow key={u.id}>
+                <TableCell className="text-sm font-medium">{u.email}</TableCell>
+                <TableCell>
+                  <Badge
+                    variant="outline"
+                    className={cn('text-xs', u.role === 'admin'
+                      ? 'border-red-500/40 bg-red-500/10 text-red-400'
+                      : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400')}
                   >
-                    {user.role}
-                  </span>
-                </td>
-                <td style={styles.td}>{user.upload_count}</td>
-                <td style={{ ...styles.td, color: '#666', fontSize: '13px' }}>
-                  {new Date(user.created_at).toLocaleDateString('de-DE')}
-                </td>
-                <td style={{ ...styles.td, color: '#666', fontSize: '13px' }}>
-                  {user.last_sign_in
-                    ? new Date(user.last_sign_in).toLocaleDateString('de-DE')
-                    : 'Nie'}
-                </td>
-                <td style={{ ...styles.td, textAlign: 'right' }}>
-                  <select
-                    value={user.role}
-                    onChange={(e) =>
-                      handleChangeRole(
-                        user.id,
-                        e.target.value as 'admin' | 'user'
-                      )
-                    }
-                    style={styles.roleSelect}
-                  >
-                    <option value="user">User</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                  <button
-                    onClick={() => handleDeleteUser(user.id, user.email)}
-                    style={styles.btnDelete}
-                  >
-                    Löschen
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Create User Modal */}
-      {showCreateModal && (
-        <div style={styles.overlay}>
-          <div style={styles.modal}>
-            {createdCredentials ? (
-              <>
-                <h2 style={{ margin: '0 0 16px', fontSize: '18px' }}>
-                  Benutzer erstellt!
-                </h2>
-                <div style={styles.credentialsBox}>
-                  <p style={{ margin: '0 0 8px' }}>
-                    <strong>Email:</strong> {createdCredentials.email}
-                  </p>
-                  <p style={{ margin: '0 0 12px' }}>
-                    <strong>Passwort:</strong>{' '}
-                    <code style={{ backgroundColor: '#f3f4f6', padding: '2px 6px', borderRadius: '4px' }}>
-                      {createdCredentials.password}
-                    </code>
-                  </p>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: '12px',
-                      color: '#92400e',
-                    }}
-                  >
-                    Zugangsdaten jetzt kopieren — werden nicht erneut angezeigt!
-                  </p>
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(
-                        `Email: ${createdCredentials.email}\nPasswort: ${createdCredentials.password}`
-                      );
-                    }}
-                    style={styles.btnPrimary}
-                  >
-                    Kopieren
-                  </button>
-                  <button
-                    onClick={() => setShowCreateModal(false)}
-                    style={styles.btnSecondary}
-                  >
-                    Schließen
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h2 style={{ margin: '0 0 20px', fontSize: '18px' }}>
-                  Neuen Benutzer anlegen
-                </h2>
-
-                {error && <div style={styles.error}>{error}</div>}
-
-                <form onSubmit={handleCreateUser}>
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>Email</label>
-                    <input
-                      type="email"
-                      value={newUser.email}
-                      onChange={(e) =>
-                        setNewUser((p) => ({ ...p, email: e.target.value }))
-                      }
-                      required
-                      placeholder="name@firma.de"
-                      style={styles.input}
-                    />
-                  </div>
-
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>Passwort</label>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <input
-                        type="text"
-                        value={newUser.password}
-                        onChange={(e) =>
-                          setNewUser((p) => ({ ...p, password: e.target.value }))
-                        }
-                        required
-                        minLength={8}
-                        placeholder="Min. 8 Zeichen"
-                        style={{ ...styles.input, flex: 1 }}
-                      />
-                      <button
-                        type="button"
-                        onClick={generatePassword}
-                        style={styles.btnSecondary}
-                      >
-                        Generieren
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>Rolle</label>
+                    {u.role}
+                  </Badge>
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">{u.upload_count}</TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {new Date(u.created_at).toLocaleDateString('de-DE')}
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {u.last_sign_in ? new Date(u.last_sign_in).toLocaleDateString('de-DE') : 'Nie'}
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="inline-flex items-center gap-2">
                     <select
-                      value={newUser.role}
-                      onChange={(e) =>
-                        setNewUser((p) => ({
-                          ...p,
-                          role: e.target.value as 'admin' | 'user',
-                        }))
-                      }
-                      style={styles.input}
+                      value={u.role}
+                      onChange={(e) => handleChangeRole(u.id, e.target.value as 'admin' | 'user')}
+                      className={SELECT_CLS}
                     >
                       <option value="user">User</option>
                       <option value="admin">Admin</option>
                     </select>
-                  </div>
-
-                  <div
-                    style={{ display: 'flex', gap: '8px', marginTop: '20px' }}
-                  >
-                    <button type="submit" style={{ ...styles.btnPrimary, flex: 1 }}>
-                      Erstellen
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowCreateModal(false)}
-                      style={styles.btnSecondary}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(u.id, u.email)}
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10 gap-1"
                     >
-                      Abbrechen
-                    </button>
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Löschen
+                    </Button>
                   </div>
-                </form>
-              </>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+
+      {/* Invite modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-md p-6">
+
+            {/* Modal header */}
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-semibold text-foreground">Neuen Benutzer einladen</h2>
+              <button type="button" onClick={closeModal} aria-label="Modal schließen" className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {invited ? (
+              /* Success state */
+              <div className="space-y-4">
+                <div className="flex items-start gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Einladung gesendet</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      <strong>{invited}</strong> hat eine E-Mail mit einem Link erhalten, um ein Passwort zu setzen.
+                    </p>
+                  </div>
+                </div>
+                <Button onClick={closeModal} className="w-full">Schließen</Button>
+              </div>
+            ) : (
+              /* Invite form */
+              <form onSubmit={handleInvite} className="space-y-4">
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-foreground">E-Mail</label>
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    placeholder="name@firma.de"
+                    autoFocus
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-foreground">Rolle</label>
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value as 'admin' | 'user')}
+                    className={cn(SELECT_CLS, 'w-full')}
+                  >
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  Der Benutzer erhält eine E-Mail mit einem Link, um sein Passwort selbst festzulegen.
+                </p>
+
+                <div className="flex gap-2 pt-2">
+                  <Button type="submit" disabled={submitting} className="flex-1 gap-2">
+                    {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+                    Einladung senden
+                  </Button>
+                  <Button type="button" variant="outline" onClick={closeModal}>
+                    Abbrechen
+                  </Button>
+                </div>
+              </form>
             )}
           </div>
         </div>
@@ -354,149 +263,3 @@ export default function AdminUsersPage() {
     </div>
   );
 }
-
-const styles: Record<string, CSSProperties> = {
-  container: {
-    padding: '32px 24px',
-    maxWidth: '1100px',
-    margin: '0 auto',
-  },
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: '24px',
-    flexWrap: 'wrap',
-    gap: '16px',
-  },
-  title: {
-    margin: '0 0 4px',
-    fontSize: '24px',
-    fontWeight: 700,
-  },
-  subtitle: {
-    margin: 0,
-    fontSize: '14px',
-    color: '#666',
-  },
-  tableWrap: {
-    backgroundColor: '#fff',
-    borderRadius: '12px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-    overflow: 'auto',
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-  },
-  th: {
-    padding: '12px 16px',
-    textAlign: 'left',
-    fontWeight: 600,
-    fontSize: '13px',
-    color: '#666',
-    borderBottom: '1px solid #e5e7eb',
-    whiteSpace: 'nowrap',
-  },
-  td: {
-    padding: '12px 16px',
-    borderBottom: '1px solid #f3f4f6',
-    fontSize: '14px',
-  },
-  badge: {
-    display: 'inline-block',
-    padding: '2px 8px',
-    borderRadius: '4px',
-    fontSize: '12px',
-    fontWeight: 600,
-  },
-  roleSelect: {
-    padding: '4px 8px',
-    borderRadius: '6px',
-    border: '1px solid #d1d5db',
-    fontSize: '13px',
-    marginRight: '8px',
-  },
-  btnDelete: {
-    padding: '4px 12px',
-    backgroundColor: '#fef2f2',
-    color: '#b91c1c',
-    border: '1px solid #fecaca',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: 500,
-  },
-  btnPrimary: {
-    padding: '10px 20px',
-    backgroundColor: '#0066cc',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: 600,
-  },
-  btnSecondary: {
-    padding: '10px 16px',
-    backgroundColor: '#f3f4f6',
-    border: '1px solid #d1d5db',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    fontSize: '14px',
-  },
-  overlay: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1000,
-    padding: '16px',
-  },
-  modal: {
-    backgroundColor: '#fff',
-    padding: '32px',
-    borderRadius: '12px',
-    maxWidth: '480px',
-    width: '100%',
-    boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
-  },
-  credentialsBox: {
-    backgroundColor: '#f0fdf4',
-    border: '1px solid #bbf7d0',
-    padding: '16px',
-    borderRadius: '8px',
-    marginBottom: '16px',
-  },
-  error: {
-    backgroundColor: '#fef2f2',
-    border: '1px solid #fecaca',
-    color: '#b91c1c',
-    padding: '12px 16px',
-    borderRadius: '8px',
-    marginBottom: '16px',
-    fontSize: '14px',
-  },
-  formGroup: {
-    marginBottom: '16px',
-  },
-  label: {
-    display: 'block',
-    marginBottom: '6px',
-    fontSize: '14px',
-    fontWeight: 600,
-  },
-  input: {
-    width: '100%',
-    padding: '10px 12px',
-    border: '1px solid #d1d5db',
-    borderRadius: '8px',
-    fontSize: '14px',
-    boxSizing: 'border-box' as CSSProperties['boxSizing'],
-  },
-};

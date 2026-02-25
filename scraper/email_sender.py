@@ -1,4 +1,4 @@
-"""Send ETA change notification emails."""
+"""Send ETA change notification emails via SMTP or Resend."""
 
 import smtplib
 import socket
@@ -8,6 +8,8 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from zoneinfo import ZoneInfo
+
+import requests as _requests
 
 from utils import env, logger
 
@@ -190,6 +192,50 @@ def _deliver_message(msg: MIMEMultipart, to_email: str) -> None:
         raise RuntimeError("SMTP rejected recipients: " + str(failed))
 
 
+def _send_via_resend(*, to_email: str, subject: str, html_body: str) -> None:
+    """Send an email via the Resend HTTP API."""
+    api_key = env.get("RESEND_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("RESEND_API_KEY must be set when EMAIL_PROVIDER=resend")
+    from_addr = (env.get("EMAIL_FROM", "") or env.get("EMAIL_ADDRESS", "")).strip()
+    if not from_addr:
+        raise RuntimeError(
+            "EMAIL_FROM must be set when EMAIL_PROVIDER=resend "
+            '(e.g. "Shipscoper <notify@yourdomain.com>")'
+        )
+
+    resp = _requests.post(
+        "https://api.resend.com/emails",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={"from": from_addr, "to": [to_email], "subject": subject, "html": html_body},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    logger.info(f"[email] resend delivery done to={to_email} status={resp.status_code}")
+
+
+def _deliver_email(*, to_email: str, subject: str, html_body: str, text_body: str | None = None) -> None:
+    """Route delivery to Resend or SMTP based on EMAIL_PROVIDER env var."""
+    provider = env.get("EMAIL_PROVIDER", "resend").strip().lower()
+    if provider == "resend":
+        _send_via_resend(to_email=to_email, subject=subject, html_body=html_body)
+        return
+
+    # SMTP path
+    address = env.get("EMAIL_ADDRESS", "")
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = address
+    msg["To"] = to_email
+    if text_body:
+        msg.attach(MIMEText(text_body, "plain", "utf-8"))
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+    _deliver_message(msg, to_email)
+
+
 def send_eta_notification(
     to_email: str,
     vessel_name: str,
@@ -198,7 +244,7 @@ def send_eta_notification(
     new_eta: str | None,
     delay_days: int,
 ) -> None:
-    """Send an ETA change notification email via SMTP."""
+    """Send an ETA change notification email (SMTP or Resend)."""
     old_str = _format_eta(old_eta)
     new_str = _format_eta(new_eta)
     delay_text = f"+{delay_days} Tage" if delay_days > 0 else f"{delay_days} Tage"
@@ -207,12 +253,6 @@ def send_eta_notification(
     subject = f"ETA-Änderung: {vessel_name}"
     if shipment_ref:
         subject += f" ({shipment_ref})"
-
-    address = env.get("EMAIL_ADDRESS", "")
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = address
-    msg["To"] = to_email
 
     html_body = f"""\
 <html>
@@ -248,29 +288,30 @@ def send_eta_notification(
   </p>
 </body>
 </html>"""
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    _deliver_message(msg, to_email)
+    _deliver_email(to_email=to_email, subject=subject, html_body=html_body)
     logger.info(f"[email] ETA notification sent to {to_email} for {vessel_name}")
 
 
 def send_test_notification(to_email: str) -> None:
-    """Send a simple test email to verify SMTP delivery."""
-    address = env.get("EMAIL_ADDRESS", "")
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Shipscoper Test Email"
-    msg["From"] = address
-    msg["To"] = to_email
-    msg.attach(
-        MIMEText(
-            (
-                "Dies ist eine Test-E-Mail aus Shipscoper by Tim Kimmich.\n\n"
-                "Wenn du diese Nachricht siehst, funktioniert der E-Mail-Versand."
-            ),
-            "plain",
-            "utf-8",
-        )
+    """Send a simple test email to verify delivery (SMTP or Resend)."""
+    text_body = (
+        "Dies ist eine Test-E-Mail aus Shipscoper by Tim Kimmich.\n\n"
+        "Wenn du diese Nachricht siehst, funktioniert der E-Mail-Versand."
     )
+    html_body = """\
+<html>
+<body style="font-family: Arial, sans-serif; color: #333;">
+  <h2 style="color: #1a1a2e;">Shipscoper Test Email</h2>
+  <p>Dies ist eine Test-E-Mail aus Shipscoper by Tim Kimmich.</p>
+  <p>Wenn du diese Nachricht siehst, funktioniert der E-Mail-Versand.</p>
+</body>
+</html>"""
 
-    _deliver_message(msg, to_email)
+    _deliver_email(
+        to_email=to_email,
+        subject="Shipscoper Test Email",
+        html_body=html_body,
+        text_body=text_body,
+    )
     logger.info(f"[email] Test notification sent to {to_email}")

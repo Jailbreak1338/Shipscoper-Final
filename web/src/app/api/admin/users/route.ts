@@ -5,7 +5,6 @@ import { z } from 'zod';
 
 const createUserSchema = z.object({
   email: z.string().email('Invalid email'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
   role: z.enum(['admin', 'user']),
 });
 
@@ -107,25 +106,22 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { email, password, role } = createUserSchema.parse(body);
+    const { email, role } = createUserSchema.parse(body);
 
     const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
     const supabaseAdmin = getSupabaseAdmin();
 
-    const { data: newUser, error: createError } =
-      await supabaseAdmin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-      });
+    // Invite user — Supabase sends a password-setup link to their email
+    const { data: inviteData, error: inviteError } =
+      await supabaseAdmin.auth.admin.inviteUserByEmail(email);
 
-    if (createError) throw createError;
+    if (inviteError) throw inviteError;
 
     // Assign role (trigger may have already created a 'user' row)
     const { error: roleError } = await supabaseAdmin
       .from('user_roles')
       .upsert(
-        { user_id: newUser.user.id, role, updated_at: new Date().toISOString() },
+        { user_id: inviteData.user.id, role, updated_at: new Date().toISOString() },
         { onConflict: 'user_id' }
       );
 
@@ -133,12 +129,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      user: {
-        id: newUser.user.id,
-        email: newUser.user.email,
-        role,
-      },
-      credentials: { email, password },
+      user: { id: inviteData.user.id, email: inviteData.user.email, role },
     });
   } catch (error) {
     console.error('Error creating user:', error);

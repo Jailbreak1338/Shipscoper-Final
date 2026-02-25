@@ -35,6 +35,7 @@ export interface ActiveWatch {
   container_reference: string | null; // comma/space-separated container numbers
   container_source: 'HHLA' | 'EUROGATE' | 'AUTO' | null;
   notification_enabled: boolean;
+  last_known_eta: string | null; // ISO timestamp — used for 7-day pre-ETA filter
 }
 
 // ── Existing status from container_latest_status ──────────────────────────────

@@ -146,13 +146,22 @@ async function loadActiveWatches(): Promise<ActiveWatch[]> {
   const { data, error } = await sb
     .from('vessel_watches')
     .select(
-      'id, user_id, vessel_name, shipment_reference, container_reference, container_source, notification_enabled'
+      'id, user_id, vessel_name, shipment_reference, container_reference, container_source, notification_enabled, last_known_eta'
     )
     // Check ALL watches with containers — notification_enabled only gates email, not status-checking
     .not('container_reference', 'is', null);
 
   if (error) throw new Error(`loadActiveWatches: ${error.message}`);
-  return (data ?? []) as ActiveWatch[];
+
+  // Only check containers for vessels arriving within the next 7 days (or already arrived / no ETA known)
+  const cutoff = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const all = (data ?? []) as ActiveWatch[];
+  const filtered = all.filter((w) => !w.last_known_eta || w.last_known_eta <= cutoff);
+  const skippedCount = all.length - filtered.length;
+  if (skippedCount > 0) {
+    log(`Skipped ${skippedCount} watch(es) — ETA more than 7 days away`, { skipped_far_eta: skippedCount });
+  }
+  return filtered;
 }
 
 async function loadLatestStatuses(

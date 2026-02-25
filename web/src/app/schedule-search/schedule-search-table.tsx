@@ -1,6 +1,19 @@
 'use client';
 
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Search, TrendingUp, TrendingDown } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 
 export type SearchRow = {
   vessel_name: string;
@@ -17,15 +30,8 @@ export type SearchRow = {
 type ShipmentMap = Record<string, string[]>;
 
 function formatDateTime(value: string | null): string {
-  if (!value) return '-';
-  return new Date(value).toLocaleString('de-DE', {
-    timeZone: 'Europe/Berlin',
-  });
-}
-
-function formatEtaChange(days: number | null): string {
-  if (days == null || days === 0) return '-';
-  return `${days > 0 ? '+' : ''}${days} Tage`;
+  if (!value) return '—';
+  return new Date(value).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });
 }
 
 export default function ScheduleSearchTable({
@@ -39,15 +45,34 @@ export default function ScheduleSearchTable({
   initialContainerByVessel: ShipmentMap;
   initialSnrFilter?: string;
 }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [shipmentByVessel] = useState<ShipmentMap>(initialShipmentByVessel);
   const [containerByVessel] = useState<ShipmentMap>(initialContainerByVessel);
   const [snrFilter, setSnrFilter] = useState(initialSnrFilter ?? '');
   const [onlyUnassigned, setOnlyUnassigned] = useState(false);
   const [onlyWithSnr, setOnlyWithSnr] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const uniqueVesselsOnPage = useMemo(() => {
-    return new Set(rows.map((r) => r.vessel_name_normalized)).size;
-  }, [rows]);
+  const handleSnrChange = (value: string) => {
+    setSnrFilter(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (value.trim()) {
+        params.set('snr', value.trim());
+      } else {
+        params.delete('snr');
+      }
+      params.delete('page'); // reset to page 1
+      router.push(`/schedule-search?${params.toString()}`);
+    }, 400);
+  };
+
+  const uniqueVesselsOnPage = useMemo(
+    () => new Set(rows.map((r) => r.vessel_name_normalized)).size,
+    [rows]
+  );
 
   const filteredRows = useMemo(() => {
     const q = snrFilter.trim().toLowerCase();
@@ -61,216 +86,141 @@ export default function ScheduleSearchTable({
   }, [rows, shipmentByVessel, snrFilter, onlyUnassigned, onlyWithSnr]);
 
   return (
-    <div style={styles.wrap}>
-      {/* ── Filter bar ─────────────────────────────────────────────────── */}
-      <div style={styles.headerRow}>
-        <div style={styles.metaText}>
-          Zeilen: {filteredRows.length} · Schiffe: {uniqueVesselsOnPage}
-        </div>
-        <div style={styles.filterRow}>
-          <input
-            type="text"
-            value={snrFilter}
-            onChange={(e) => setSnrFilter(e.target.value)}
-            placeholder="S-Nr. suchen …"
-            style={styles.input}
-          />
-          <label style={styles.checkLabel}>
+    <div className="space-y-3">
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          {filteredRows.length} Zeilen · {uniqueVesselsOnPage} Schiffe
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              type="text"
+              value={snrFilter}
+              onChange={(e) => handleSnrChange(e.target.value)}
+              placeholder="S-Nr. filtern…"
+              className="pl-8 h-8 text-sm w-44"
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
             <input
               type="checkbox"
               checked={onlyUnassigned}
-              onChange={(e) => {
-                const next = e.target.checked;
-                setOnlyUnassigned(next);
-                if (next) setOnlyWithSnr(false);
-              }}
+              onChange={(e) => { setOnlyUnassigned(e.target.checked); if (e.target.checked) setOnlyWithSnr(false); }}
+              className="rounded border-border"
             />
             Nur ohne S-Nr.
           </label>
-          <label style={styles.checkLabel}>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
             <input
               type="checkbox"
               checked={onlyWithSnr}
-              onChange={(e) => {
-                const next = e.target.checked;
-                setOnlyWithSnr(next);
-                if (next) setOnlyUnassigned(false);
-              }}
+              onChange={(e) => { setOnlyWithSnr(e.target.checked); if (e.target.checked) setOnlyUnassigned(false); }}
+              className="rounded border-border"
             />
             Nur mit S-Nr.
           </label>
         </div>
       </div>
 
-      {/* ── Table ──────────────────────────────────────────────────────── */}
-      <div style={styles.tableWrap}>
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              <th style={styles.th}>Schiff</th>
-              <th style={styles.th}>Quelle</th>
-              <th style={styles.th}>ETA</th>
-              <th style={styles.th}>Vorh. ETA</th>
-              <th style={styles.th}>Δ ETA</th>
-              <th style={styles.th}>ETD</th>
-              <th style={styles.th}>Terminal</th>
-              <th style={styles.th}>Abgerufen</th>
-              <th style={styles.th}>S-Nr.</th>
-              <th style={styles.th}>Container</th>
-            </tr>
-          </thead>
-          <tbody>
+      {/* Table */}
+      <div className="rounded-lg border border-border overflow-auto bg-card">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="text-xs uppercase tracking-wide">Schiff</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Quelle</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">ETA</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Vorh. ETA</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Δ ETA</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">ETD</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Terminal</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Abgerufen</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">S-Nr.</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Container</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {filteredRows.length === 0 ? (
-              <tr>
-                <td colSpan={10} style={{ ...styles.td, textAlign: 'center', color: 'var(--text-secondary)', padding: '32px' }}>
+              <TableRow>
+                <TableCell colSpan={10} className="text-center py-10 text-muted-foreground text-sm">
                   Keine Daten gefunden
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ) : (
               filteredRows.map((row, i) => {
                 const key = row.vessel_name_normalized;
                 const assigned = shipmentByVessel[key] ?? [];
                 const containers = containerByVessel[key] ?? [];
+                const days = row.eta_change_days;
+                const isPositive = days != null && days > 0;
+                const isNegative = days != null && days < 0;
 
                 return (
-                  <tr key={`${row.vessel_name}-${row.source}-${row.scraped_at}-${i}`}>
-                    <td style={{ ...styles.td, fontWeight: 600 }}>{row.vessel_name}</td>
-                    <td style={styles.td}>
-                      <span style={{
-                        ...styles.sourceBadge,
-                        backgroundColor: row.source === 'eurogate' ? '#eff6ff' : '#f0fdf4',
-                        color: row.source === 'eurogate' ? '#1d4ed8' : '#166534',
-                        borderColor: row.source === 'eurogate' ? '#bfdbfe' : '#bbf7d0',
-                      }}>
+                  <TableRow key={`${row.vessel_name}-${row.source}-${row.scraped_at}-${i}`}>
+                    <TableCell className="font-semibold text-sm">{row.vessel_name}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'text-xs',
+                          row.source === 'eurogate'
+                            ? 'text-sky-400 border-sky-500/30'
+                            : 'text-emerald-400 border-emerald-500/30'
+                        )}
+                      >
                         {row.source === 'eurogate' ? 'Eurogate' : 'HHLA'}
-                      </span>
-                    </td>
-                    <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>{formatDateTime(row.eta)}</td>
-                    <td style={{ ...styles.td, whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>{formatDateTime(row.previous_eta)}</td>
-                    <td style={{
-                      ...styles.td,
-                      fontWeight: 600,
-                      color: row.eta_change_days == null || row.eta_change_days === 0
-                        ? 'var(--text-secondary)'
-                        : row.eta_change_days > 0 ? '#dc2626' : '#16a34a',
-                    }}>
-                      {formatEtaChange(row.eta_change_days)}
-                    </td>
-                    <td style={{ ...styles.td, whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>{formatDateTime(row.etd)}</td>
-                    <td style={styles.td}>{row.terminal ?? '-'}</td>
-                    <td style={{ ...styles.td, whiteSpace: 'nowrap', color: 'var(--text-secondary)', fontSize: '12px' }}>{formatDateTime(row.scraped_at)}</td>
-                    <td style={styles.td}>
-                      {assigned.length > 0
-                        ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
-                            {assigned.map((snr) => (
-                              <span key={snr} style={styles.snrBadge}>{snr}</span>
-                            ))}
-                          </div>
-                        : <span style={{ color: 'var(--text-secondary)' }}>–</span>}
-                    </td>
-                    <td style={styles.td}>
-                      {containers.length > 0
-                        ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
-                            {containers.map((c) => (
-                              <span key={c} style={styles.containerBadge}>{c}</span>
-                            ))}
-                          </div>
-                        : <span style={{ color: 'var(--text-secondary)' }}>–</span>}
-                    </td>
-                  </tr>
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-sm whitespace-nowrap">{formatDateTime(row.eta)}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDateTime(row.previous_eta)}</TableCell>
+                    <TableCell>
+                      {days == null || days === 0 ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : (
+                        <span className={cn('inline-flex items-center gap-1 text-xs font-semibold', isPositive ? 'text-red-400' : 'text-emerald-400')}>
+                          {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                          {isPositive ? '+' : ''}{days}d
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDateTime(row.etd)}</TableCell>
+                    <TableCell className="text-sm">{row.terminal ?? '—'}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDateTime(row.scraped_at)}</TableCell>
+                    <TableCell>
+                      {assigned.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {assigned.map((snr) => (
+                            <Badge key={snr} variant="secondary" className="font-mono text-xs px-1.5 py-0">
+                              {snr}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {containers.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {containers.map((c) => (
+                            <Badge key={c} variant="outline" className="font-mono text-xs px-1.5 py-0">
+                              {c}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
                 );
               })
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </div>
   );
 }
-
-const styles: Record<string, CSSProperties> = {
-  wrap: { marginTop: '8px' },
-  headerRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: '10px',
-    marginBottom: '10px',
-    flexWrap: 'wrap',
-  },
-  filterRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    flexWrap: 'wrap',
-  },
-  metaText: { fontSize: '13px', color: 'var(--text-secondary)' },
-  input: {
-    padding: '8px 12px',
-    border: '1px solid var(--border)',
-    borderRadius: '8px',
-    fontSize: '14px',
-    backgroundColor: 'var(--surface)',
-    color: 'var(--text-primary)',
-  },
-  checkLabel: {
-    fontSize: '13px',
-    color: 'var(--text-secondary)',
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '6px',
-    cursor: 'pointer',
-  },
-  tableWrap: {
-    backgroundColor: 'var(--surface)',
-    borderRadius: '12px',
-    border: '1px solid var(--border)',
-    overflow: 'auto',
-  },
-  table: { width: '100%', borderCollapse: 'collapse' },
-  th: {
-    padding: '12px 14px',
-    textAlign: 'left',
-    fontSize: '12px',
-    fontWeight: 600,
-    color: 'var(--text-secondary)',
-    borderBottom: '1px solid var(--border)',
-    whiteSpace: 'nowrap',
-    textTransform: 'uppercase',
-    letterSpacing: '0.04em',
-  },
-  td: {
-    padding: '10px 14px',
-    borderBottom: '1px solid var(--border)',
-    fontSize: '13px',
-    verticalAlign: 'middle',
-    color: 'var(--text-primary)',
-  },
-  sourceBadge: {
-    display: 'inline-block',
-    padding: '2px 8px',
-    border: '1px solid',
-    borderRadius: '4px',
-    fontSize: '11px',
-    fontWeight: 600,
-  },
-  snrBadge: {
-    display: 'inline-block',
-    padding: '2px 6px',
-    backgroundColor: 'var(--surface-muted)',
-    border: '1px solid var(--border)',
-    borderRadius: '4px',
-    fontSize: '11px',
-    fontWeight: 600,
-    fontFamily: 'monospace',
-  },
-  containerBadge: {
-    display: 'inline-block',
-    padding: '2px 6px',
-    backgroundColor: 'var(--surface-muted)',
-    border: '1px solid var(--border)',
-    borderRadius: '4px',
-    fontSize: '11px',
-    fontFamily: 'monospace',
-  },
-};

@@ -16,15 +16,7 @@ export default function LogoutButton() {
   return (
     <button
       onClick={handleLogout}
-      style={{
-        padding: '6px 14px',
-        backgroundColor: 'transparent',
-        border: '1px solid rgba(255,255,255,0.3)',
-        borderRadius: '6px',
-        cursor: 'pointer',
-        fontSize: '13px',
-        color: '#fff',
-      }}
+      className="px-3.5 py-1.5 text-sm text-muted-foreground border border-white/10 rounded-md hover:bg-white/5 hover:text-foreground transition-colors cursor-pointer"
     >
       Abmelden
     </button>

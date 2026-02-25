@@ -2,8 +2,18 @@ import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import type { CSSProperties } from 'react';
 import AutoRefresh from '@/components/AutoRefresh';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -20,7 +30,6 @@ interface UploadLog {
   processing_time_ms: number | null;
   created_at: string;
 }
-
 
 interface EtaHistoryRow {
   vessel_id: string;
@@ -51,11 +60,7 @@ function toDayDiff(nextEta: string | null, previousEta: string | null): number |
 function buildEtaTrend(rows: EtaHistoryRow[]): EtaTrendPoint[] {
   const previousByKey = new Map<string, string | null>();
   const aggregate = new Map<string, { sum: number; count: number }>();
-
-  const ordered = [...rows].sort(
-    (a, b) => new Date(a.scraped_at).getTime() - new Date(b.scraped_at).getTime()
-  );
-
+  const ordered = [...rows].sort((a, b) => new Date(a.scraped_at).getTime() - new Date(b.scraped_at).getTime());
   for (const row of ordered) {
     const key = `${row.vessel_id}|${row.source}`;
     const previousEta = previousByKey.get(key) ?? null;
@@ -69,7 +74,6 @@ function buildEtaTrend(rows: EtaHistoryRow[]): EtaTrendPoint[] {
     }
     previousByKey.set(key, row.eta);
   }
-
   return Array.from(aggregate.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .slice(-30)
@@ -97,13 +101,8 @@ function buildSparkline(points: EtaTrendPoint[]): string {
 
 export default async function DashboardPage() {
   const supabase = createServerComponentClient({ cookies });
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
-    redirect('/login');
-  }
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) redirect('/login');
 
   const adminClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -112,79 +111,46 @@ export default async function DashboardPage() {
   );
 
   const { data: roleData } = await adminClient
-    .from('user_roles')
-    .select('role')
-    .eq('user_id', session.user.id)
-    .single();
-
+    .from('user_roles').select('role').eq('user_id', session.user.id).single();
   const isAdmin = (roleData as { role: string } | null)?.role === 'admin';
 
-  const { data: userUploads, error: uploadsError } = await adminClient
+  const { data: userUploads } = await adminClient
     .from('upload_logs')
     .select('*')
     .eq('user_id', session.user.id)
     .order('created_at', { ascending: false })
     .limit(10);
 
-  if (uploadsError) {
-    console.error('Dashboard: failed to fetch upload_logs:', uploadsError);
-  }
-
   const uploads = (userUploads as UploadLog[] | null) ?? [];
-
   const totalUploads = uploads.length;
   const totalMatched = uploads.reduce((s, l) => s + l.matched_count, 0);
   const totalUnmatched = uploads.reduce((s, l) => s + l.unmatched_count, 0);
   const totalRows = totalMatched + totalUnmatched;
-  const successRate =
-    totalRows > 0 ? Math.round((totalMatched / totalRows) * 100) : 0;
+  const successRate = totalRows > 0 ? Math.round((totalMatched / totalRows) * 100) : 0;
 
   const allShipmentNumbers = new Set<string>();
   for (const log of uploads) {
     if (log.shipment_numbers) {
-      for (const num of log.shipment_numbers) {
-        allShipmentNumbers.add(num);
-      }
+      for (const num of log.shipment_numbers) allShipmentNumbers.add(num);
     }
   }
 
-  let adminStats: {
-    totalUsers: number;
-    totalUploads: number;
-    totalVessels: number;
-    avgProcessingTime: number;
-  } | null = null;
+  let adminStats: { totalUsers: number; totalUploads: number; totalVessels: number; avgProcessingTime: number } | null = null;
   let etaTrend: EtaTrendPoint[] = [];
-  let etaHistoryPreview: Array<{
-    vesselName: string;
-    source: string;
-    eta: string | null;
-    scraped_at: string;
-  }> = [];
+  let etaHistoryPreview: Array<{ vesselName: string; source: string; eta: string | null; scraped_at: string }> = [];
 
   if (isAdmin) {
     const [usersRes, uploadsRes, vesselsRes, etaEventsRes] = await Promise.all([
       supabase.from('user_roles').select('user_id'),
-      adminClient
-        .from('upload_logs')
-        .select('processing_time_ms')
-        .order('created_at', { ascending: false }),
+      adminClient.from('upload_logs').select('processing_time_ms').order('created_at', { ascending: false }),
       supabase.from('vessels').select('id'),
-      adminClient
-        .from('schedule_events')
-        .select('vessel_id, source, eta, scraped_at, vessels(name)')
-        .order('scraped_at', { ascending: false })
-        .limit(5000),
+      adminClient.from('schedule_events').select('vessel_id, source, eta, scraped_at, vessels(name)').order('scraped_at', { ascending: false }).limit(5000),
     ]);
 
     const allUploads = (uploadsRes.data as { processing_time_ms: number | null }[] | null) ?? [];
-    const avgTime =
-      allUploads.length > 0
-        ? Math.round(
-            allUploads.reduce((s, l) => s + (l.processing_time_ms ?? 0), 0) /
-              allUploads.length
-          )
-        : 0;
+    const avgTime = allUploads.length > 0
+      ? Math.round(allUploads.reduce((s, l) => s + (l.processing_time_ms ?? 0), 0) / allUploads.length)
+      : 0;
 
     adminStats = {
       totalUsers: usersRes.data?.length ?? 0,
@@ -204,277 +170,207 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div style={styles.container}>
+    <div className="max-w-5xl mx-auto p-6 space-y-6">
       <AutoRefresh intervalMs={15000} />
-      <h1 style={styles.pageTitle}>Dashboard</h1>
 
-      <div style={styles.grid3}>
-        <div style={styles.statCard}>
-          <div style={styles.statLabel}>Meine Uploads</div>
-          <div style={styles.statValue}>{totalUploads}</div>
-        </div>
-        <div style={styles.statCard}>
-          <div style={styles.statLabel}>Erfolgsrate</div>
-          <div style={{ ...styles.statValue, color: '#0ea5e9' }}>
-            {successRate}%
-          </div>
-        </div>
-        <div style={styles.statCard}>
-          <div style={styles.statLabel}>Sendungsnummern</div>
-          <div style={styles.statValue}>{allShipmentNumbers.size}</div>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+        <p className="text-sm text-muted-foreground mt-1">Übersicht deiner Uploads und Systemaktivität</p>
       </div>
 
+      {/* User Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="p-5">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Meine Uploads</p>
+            <p className="text-3xl font-bold text-foreground">{totalUploads}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-5">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Erfolgsrate</p>
+            <p className={cn('text-3xl font-bold', successRate >= 80 ? 'text-emerald-400' : successRate >= 50 ? 'text-amber-400' : 'text-red-400')}>
+              {successRate}%
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-5">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Sendungsnummern</p>
+            <p className="text-3xl font-bold text-foreground">{allShipmentNumbers.size}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Admin Stats */}
       {isAdmin && adminStats && (
         <>
-          <h2 style={styles.sectionTitle}>System (Admin)</h2>
-
-          <div style={styles.grid4}>
-            {[
-              { label: 'Benutzer', value: adminStats.totalUsers },
-              { label: 'Alle Uploads', value: adminStats.totalUploads },
-              { label: 'Vessels in DB', value: adminStats.totalVessels },
-              {
-                label: 'Avg. Verarbeitung',
-                value: `${adminStats.avgProcessingTime}ms`,
-              },
-            ].map((s) => (
-              <div key={s.label} style={styles.adminCard}>
-                <div style={styles.statLabel}>{s.label}</div>
-                <div style={{ ...styles.statValue, fontSize: '24px' }}>
-                  {s.value}
-                </div>
-              </div>
-            ))}
+          <div>
+            <h2 className="text-base font-semibold text-foreground mb-3 flex items-center gap-2">
+              System
+              <Badge variant="outline" className="text-amber-400 border-amber-500/30 text-xs">Admin</Badge>
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Benutzer', value: adminStats.totalUsers },
+                { label: 'Alle Uploads', value: adminStats.totalUploads },
+                { label: 'Vessels in DB', value: adminStats.totalVessels },
+                { label: 'Ø Verarbeitung', value: `${adminStats.avgProcessingTime}ms` },
+              ].map((s) => (
+                <Card key={s.label}>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{s.label}</p>
+                    <p className="text-2xl font-bold text-foreground">{s.value}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
 
-          <h3 style={styles.sectionSubTitle}>ETA-Verlauf (Ø Tage Änderung pro Scrape-Tag)</h3>
-          <div style={styles.chartCard}>
-            {etaTrend.length > 0 ? (
-              <>
-                <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={styles.chartSvg}>
-                  <polyline
-                    fill="none"
-                    stroke="#0ea5e9"
-                    strokeWidth="2"
-                    points={buildSparkline(etaTrend)}
-                  />
-                </svg>
-                <div style={styles.chartLegend}>
-                  {etaTrend.slice(-6).map((point) => (
-                    <span key={point.date}>
-                      {formatDate(point.date)}: {point.avgChangeDays > 0 ? '+' : ''}
-                      {point.avgChangeDays} Tage ({point.samples})
-                    </span>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div style={styles.emptyInfo}>Noch zu wenig ETA-Historie für den Graphen.</div>
-            )}
-          </div>
+          {/* ETA Trend Chart */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold">ETA-Verlauf</CardTitle>
+              <CardDescription>Ø Tage Änderung pro Scrape-Tag (letzte 30 Tage)</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {etaTrend.length > 0 ? (
+                <>
+                  <svg
+                    viewBox="0 0 100 40"
+                    preserveAspectRatio="none"
+                    className="w-full h-28 rounded-md border border-border/50"
+                    style={{ background: 'hsl(var(--muted)/0.3)' }}
+                  >
+                    <polyline
+                      fill="none"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      points={buildSparkline(etaTrend)}
+                    />
+                  </svg>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
+                    {etaTrend.slice(-6).map((point) => (
+                      <span key={point.date} className="text-xs text-muted-foreground">
+                        {formatDate(point.date)}:{' '}
+                        <span className={cn('font-semibold', point.avgChangeDays > 0 ? 'text-red-400' : 'text-emerald-400')}>
+                          {point.avgChangeDays > 0 ? '+' : ''}{point.avgChangeDays}d
+                        </span>{' '}
+                        <span className="opacity-60">({point.samples})</span>
+                      </span>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground py-4">Noch zu wenig ETA-Historie für den Graphen.</p>
+              )}
+            </CardContent>
+          </Card>
 
-          <h3 style={styles.sectionSubTitle}>Alte ETA-Werte (aus Datenbank)</h3>
-          <div style={styles.tableWrap}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Vessel</th>
-                  <th style={styles.th}>Quelle</th>
-                  <th style={styles.th}>ETA</th>
-                  <th style={styles.th}>Scrape-Zeit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {etaHistoryPreview.length > 0 ? (
-                  etaHistoryPreview.map((row, idx) => (
-                    <tr key={`${row.vesselName}-${row.source}-${row.scraped_at}-${idx}`}>
-                      <td style={styles.td}>{row.vesselName}</td>
-                      <td style={styles.td}>{row.source}</td>
-                      <td style={styles.td}>{row.eta ? new Date(row.eta).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' }) : '-'}</td>
-                      <td style={styles.td}>{new Date(row.scraped_at).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={4} style={{ ...styles.td, textAlign: 'center', color: '#888' }}>
-                      Keine ETA-Historie gefunden.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          {/* ETA History Preview */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold">Letzte ETA-Werte</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Vessel</TableHead>
+                    <TableHead>Quelle</TableHead>
+                    <TableHead>ETA</TableHead>
+                    <TableHead>Scrape-Zeit</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {etaHistoryPreview.length > 0 ? (
+                    etaHistoryPreview.map((row, idx) => (
+                      <TableRow key={`${row.vesselName}-${row.source}-${row.scraped_at}-${idx}`}>
+                        <TableCell className="font-medium text-sm">{row.vesselName}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={cn('text-xs capitalize', row.source === 'hhla' ? 'text-emerald-400 border-emerald-500/30' : 'text-sky-400 border-sky-500/30')}
+                          >
+                            {row.source}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {row.eta ? new Date(row.eta).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' }) : '—'}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {new Date(row.scraped_at).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-muted-foreground py-6 text-sm">
+                        Keine ETA-Historie gefunden.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </>
       )}
 
-      <h2 style={styles.sectionTitle}>Letzte Uploads</h2>
-      <div style={styles.tableWrap}>
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              <th style={styles.th}>Datei</th>
-              <th style={styles.th}>Matched</th>
-              <th style={styles.th}>Unmatched</th>
-              <th style={styles.th}>Sendungen</th>
-              <th style={styles.th}>Zeit</th>
-              <th style={styles.th}>Datum</th>
-            </tr>
-          </thead>
-          <tbody>
-            {uploads.length > 0 ? (
-              uploads.map((log) => (
-                <tr key={log.id}>
-                  <td style={styles.td}>{log.filename}</td>
-                  <td style={{ ...styles.td, color: '#15803d', fontWeight: 600 }}>
-                    {log.matched_count}
-                  </td>
-                  <td style={{ ...styles.td, color: '#b91c1c', fontWeight: 600 }}>
-                    {log.unmatched_count}
-                  </td>
-                  <td style={styles.td}>{log.shipment_numbers?.length ?? 0}</td>
-                  <td style={styles.tdMuted}>{log.processing_time_ms ?? '-'}ms</td>
-                  <td style={styles.tdMuted}>
-                    {new Date(log.created_at).toLocaleString('de-DE', {
-                      timeZone: 'Europe/Berlin',
-                    })}
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td
-                  colSpan={6}
-                  style={{
-                    ...styles.td,
-                    textAlign: 'center',
-                    padding: '32px',
-                    color: 'var(--text-secondary)',
-                  }}
-                >
-                  Noch keine Uploads.{' '}
-                  <a
-                    href="/eta-updater"
-                    style={{ color: '#0ea5e9', textDecoration: 'none' }}
-                  >
-                    Jetzt starten
-                  </a>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {/* Upload Log */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold">Letzte Uploads</CardTitle>
+          <CardDescription>Deine letzten 10 Datei-Uploads</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Datei</TableHead>
+                <TableHead>Matched</TableHead>
+                <TableHead>Unmatched</TableHead>
+                <TableHead>Sendungen</TableHead>
+                <TableHead>Zeit</TableHead>
+                <TableHead>Datum</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {uploads.length > 0 ? (
+                uploads.map((log) => (
+                  <TableRow key={log.id}>
+                    <TableCell className="text-sm font-medium max-w-48 truncate">{log.filename}</TableCell>
+                    <TableCell>
+                      <span className="text-emerald-400 font-semibold text-sm">{log.matched_count}</span>
+                    </TableCell>
+                    <TableCell>
+                      <span className={cn('font-semibold text-sm', log.unmatched_count > 0 ? 'text-red-400' : 'text-muted-foreground')}>
+                        {log.unmatched_count}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-sm">{log.shipment_numbers?.length ?? 0}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{log.processing_time_ms ?? '—'}ms</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {new Date(log.created_at).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })}
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-10 text-muted-foreground text-sm">
+                    Noch keine Uploads.{' '}
+                    <a href="/eta-updater" className="text-primary hover:underline">
+                      Jetzt starten
+                    </a>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }
-
-const styles: Record<string, CSSProperties> = {
-  container: {
-    padding: '32px 24px',
-    maxWidth: '1100px',
-    margin: '0 auto',
-  },
-  pageTitle: {
-    margin: '0 0 24px',
-    fontSize: '24px',
-    fontWeight: 700,
-  },
-  sectionTitle: {
-    margin: '32px 0 16px',
-    fontSize: '18px',
-    fontWeight: 600,
-  },
-  sectionSubTitle: {
-    margin: '20px 0 10px',
-    fontSize: '15px',
-    fontWeight: 700,
-  },
-  grid3: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-    gap: '16px',
-  },
-  grid4: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-    gap: '12px',
-  },
-  statCard: {
-    backgroundColor: 'var(--surface)',
-    border: '1px solid var(--border)',
-    padding: '24px',
-    borderRadius: '12px',
-  },
-  adminCard: {
-    backgroundColor: 'var(--surface-muted)',
-    border: '1px solid var(--border)',
-    padding: '20px',
-    borderRadius: '10px',
-  },
-  statLabel: {
-    fontSize: '13px',
-    color: 'var(--text-secondary)',
-    marginBottom: '6px',
-  },
-  statValue: {
-    fontSize: '32px',
-    fontWeight: 700,
-  },
-  chartCard: {
-    backgroundColor: '#fff',
-    borderRadius: '12px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-    padding: '14px',
-    marginBottom: '14px',
-  },
-  chartSvg: {
-    width: '100%',
-    height: '180px',
-    background: 'linear-gradient(180deg, #f8fafc, #ffffff)',
-    borderRadius: '8px',
-    border: '1px solid #e5e7eb',
-  },
-  chartLegend: {
-    marginTop: '8px',
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: '10px',
-    fontSize: '12px',
-    color: '#475569',
-  },
-  emptyInfo: {
-    fontSize: '13px',
-    color: '#64748b',
-  },
-  tableWrap: {
-    backgroundColor: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: '12px',
-    overflow: 'auto',
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-  },
-  th: {
-    padding: '12px 16px',
-    textAlign: 'left',
-    fontWeight: 600,
-    fontSize: '13px',
-    color: 'var(--text-secondary)',
-    borderBottom: '1px solid var(--border)',
-    whiteSpace: 'nowrap',
-  },
-  td: {
-    padding: '12px 16px',
-    borderBottom: '1px solid var(--border)',
-    fontSize: '14px',
-  },
-  tdMuted: {
-    padding: '12px 16px',
-    borderBottom: '1px solid var(--border)',
-    fontSize: '13px',
-    color: 'var(--text-secondary)',
-  },
-};

@@ -1,7 +1,8 @@
 import { readdir, stat, unlink } from 'fs/promises';
+import os from 'os';
 import path from 'path';
 
-const TMP_DIR = '/tmp';
+const TMP_DIR = os.tmpdir();
 const TMP_FILE_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.xlsx$/i;
 

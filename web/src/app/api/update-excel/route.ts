@@ -20,14 +20,32 @@ function parseShipmentRefs(input: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+function parseDeliveryDate(raw: unknown): string | null {
+  if (raw == null || raw === '') return null;
+  if (raw instanceof Date) {
+    return isNaN(raw.getTime()) ? null : raw.toISOString().split('T')[0];
+  }
+  const str = String(raw).trim();
+  if (!str) return null;
+  // German format DD.MM.YYYY
+  const m = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+  if (m) {
+    const d = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+    return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0];
+  }
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0];
+}
+
 async function autoAssignShipmentsFromUpload(params: {
   userId: string;
   fileBuffer: Buffer;
   vesselCol: string;
   shipmentCol: string;
   containerCol?: string;
+  deliveryDateCol?: string;
 }): Promise<{ updatedCount: number; skippedConflicts: number }> {
-  const workbook = XLSX.read(params.fileBuffer, { type: 'buffer' });
+  const workbook = XLSX.read(params.fileBuffer, { type: 'buffer', cellDates: true });
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
 
@@ -36,7 +54,7 @@ async function autoAssignShipmentsFromUpload(params: {
     vesselName: string;
     refs: Set<string>;
     containers: Set<string>;
-    pairs: Array<{ container_no: string; snr: string | null }>;
+    pairs: Array<{ container_no: string; snr: string | null; delivery_date?: string | null }>;
   }>();
   for (const row of rows) {
     const vesselRaw = String(row[params.vesselCol] ?? '').trim();
@@ -50,7 +68,7 @@ async function autoAssignShipmentsFromUpload(params: {
       vesselName: vesselRaw,
       refs: new Set<string>(),
       containers: new Set<string>(),
-      pairs: [] as Array<{ container_no: string; snr: string | null }>,
+      pairs: [] as Array<{ container_no: string; snr: string | null; delivery_date?: string | null }>,
     };
 
     for (const ref of refs) {
@@ -63,7 +81,10 @@ async function autoAssignShipmentsFromUpload(params: {
         existing.containers.add(containerRaw);
         // Build exact container↔S-Nr pair (one per row, first S-Nr wins if duplicate container)
         if (!existing.pairs.some((p) => p.container_no === containerRaw)) {
-          existing.pairs.push({ container_no: containerRaw, snr: refs[0] ?? null });
+          const deliveryDate = params.deliveryDateCol
+            ? parseDeliveryDate(row[params.deliveryDateCol])
+            : null;
+          existing.pairs.push({ container_no: containerRaw, snr: refs[0] ?? null, delivery_date: deliveryDate });
         }
       }
     }
@@ -124,7 +145,7 @@ async function autoAssignShipmentsFromUpload(params: {
     vessel_name_normalized: string;
     shipment_reference: string;
     container_reference: string | null;
-    container_snr_pairs: unknown | null;
+    container_snr_pairs: Array<{ container_no: string; snr: string | null; delivery_date?: string | null }> | null;
     last_known_eta: string | null;
     notification_enabled: boolean;
   }> = [];
@@ -175,10 +196,15 @@ async function autoAssignShipmentsFromUpload(params: {
     if (containersChanged) updatePayload.container_reference = Array.from(mergedContainers).join(', ');
     if (pairsChanged) updatePayload.container_snr_pairs = payload.pairs;
 
-    const { error: updateError } = await admin
-      .from('vessel_watches')
-      .update(updatePayload)
-      .eq('id', existing.id);
+    let { error: updateError } = await admin
+      .from('vessel_watches').update(updatePayload).eq('id', existing.id);
+
+    // If container_snr_pairs column doesn't exist yet, retry without it
+    if (updateError?.message?.includes('container_snr_pairs')) {
+      const { container_snr_pairs: _p, ...payloadWithoutPairs } = updatePayload;
+      const retry = await admin.from('vessel_watches').update(payloadWithoutPairs).eq('id', existing.id);
+      updateError = retry.error;
+    }
 
     if (!updateError) {
       updatedCount += 1;
@@ -199,9 +225,14 @@ async function autoAssignShipmentsFromUpload(params: {
       ins.last_known_eta = etaMap.get(ins.vessel_name_normalized) ?? null;
     }
 
-    const { error: insertError } = await admin
-      .from('vessel_watches')
-      .insert(inserts);
+    let { error: insertError } = await admin.from('vessel_watches').insert(inserts);
+
+    // If container_snr_pairs column doesn't exist yet, retry without it
+    if (insertError?.message?.includes('container_snr_pairs')) {
+      const insertsWithoutPairs = inserts.map(({ container_snr_pairs: _p, ...rest }) => rest);
+      const retry = await admin.from('vessel_watches').insert(insertsWithoutPairs);
+      insertError = retry.error;
+    }
 
     if (insertError) {
       console.error('autoAssignShipmentsFromUpload: failed to insert watches', insertError);
@@ -326,6 +357,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const terminalCol = (formData.get('terminalCol') as string | null) || undefined;
     const customsCol = (formData.get('customsCol') as string | null) || undefined;
     const containerCol = (formData.get('containerCol') as string | null) || undefined;
+    const deliveryDateCol = (formData.get('deliveryDateCol') as string | null) || undefined;
 
     if (!vesselCol || etaCols.length === 0) {
       return NextResponse.json(
@@ -426,6 +458,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         vesselCol,
         shipmentCol,
         containerCol,
+        deliveryDateCol,
       });
       autoAssignedCount = assignResult.updatedCount;
       autoAssignSkippedConflicts = assignResult.skippedConflicts;

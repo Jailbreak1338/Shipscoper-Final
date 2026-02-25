@@ -1,9 +1,15 @@
 'use client';
 
+import Logo from '@/components/Logo';
 import { useState } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/navigation';
-import type { CSSProperties } from 'react';
+import { AlertCircle, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -18,10 +24,7 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
 
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
 
     if (authError) {
       setError(authError.message);
@@ -34,152 +37,79 @@ export default function LoginPage() {
   };
 
   return (
-    <div style={styles.wrapper}>
-      <div style={styles.card}>
-        <div style={styles.logoRow}>
-          <div style={styles.logo}>SK</div>
-          <h1 style={styles.title}>Shipscoper by Tim Kimmich</h1>
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      {/* Background glow */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-primary/5 blur-3xl" />
+      </div>
+
+      <div className="w-full max-w-sm relative">
+        {/* Logo */}
+        <div className="flex flex-col items-center mb-8">
+          <Logo size="lg" />
+          <p className="text-sm text-muted-foreground">by Tim Kimmich</p>
         </div>
-        <p style={styles.subtitle}>Bitte melden Sie sich an</p>
 
-        {error && <div style={styles.error}>{error}</div>}
+        <Card className="border-border/50 shadow-2xl">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-lg">Anmelden</CardTitle>
+            <CardDescription>Geben Sie Ihre Zugangsdaten ein</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {error && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-        <form onSubmit={handleLogin}>
-          <div style={styles.formGroup}>
-            <label style={styles.label}>E-Mail</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              disabled={loading}
-              placeholder="name@firma.de"
-              style={styles.input}
-            />
-          </div>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">E-Mail</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  disabled={loading}
+                  placeholder="name@firma.de"
+                  autoComplete="email"
+                />
+              </div>
 
-          <div style={styles.formGroup}>
-            <label style={styles.label}>Passwort</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              disabled={loading}
-              placeholder="Passwort eingeben"
-              style={styles.input}
-            />
-          </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Passwort</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  disabled={loading}
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                />
+              </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              ...styles.button,
-              backgroundColor: loading ? '#93c5fd' : '#0066cc',
-              cursor: loading ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {loading ? 'Anmelden...' : 'Anmelden'}
-          </button>
-        </form>
+              <Button type="submit" disabled={loading} className="w-full mt-2">
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Anmelden…
+                  </>
+                ) : (
+                  'Anmelden'
+                )}
+              </Button>
+            </form>
 
-        <p style={styles.footer}>
-          Kein Zugang? Kontaktieren Sie Ihren Administrator.
-        </p>
+            <p className="mt-6 text-center text-xs text-muted-foreground">
+              Kein Zugang? Kontaktieren Sie Ihren Administrator.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
 }
-
-const styles: Record<string, CSSProperties> = {
-  wrapper: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'var(--bg-app)',
-    padding: '16px',
-  },
-  card: {
-    backgroundColor: 'var(--surface)',
-    border: '1px solid var(--border)',
-    padding: '40px',
-    borderRadius: '12px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)',
-    width: '100%',
-    maxWidth: '400px',
-  },
-  logoRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    marginBottom: '4px',
-  },
-  logo: {
-    width: '36px',
-    height: '36px',
-    backgroundColor: '#0066cc',
-    borderRadius: '8px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 'bold',
-    fontSize: '14px',
-    color: '#fff',
-  },
-  title: {
-    margin: 0,
-    fontSize: '22px',
-    fontWeight: 700,
-  },
-  subtitle: {
-    margin: '8px 0 24px',
-    color: 'var(--text-secondary)',
-    fontSize: '15px',
-  },
-  error: {
-    backgroundColor: 'var(--surface-muted)',
-    border: '1px solid #fecaca',
-    color: '#b91c1c',
-    padding: '12px 16px',
-    borderRadius: '8px',
-    marginBottom: '16px',
-    fontSize: '14px',
-  },
-  formGroup: {
-    marginBottom: '16px',
-  },
-  label: {
-    display: 'block',
-    marginBottom: '6px',
-    fontSize: '14px',
-    fontWeight: 600,
-  },
-  input: {
-    width: '100%',
-    padding: '10px 12px',
-    border: '1px solid var(--border)',
-    borderRadius: '8px',
-    fontSize: '14px',
-    backgroundColor: 'var(--surface)',
-    color: 'var(--text-primary)',
-    boxSizing: 'border-box' as CSSProperties['boxSizing'],
-  },
-  button: {
-    width: '100%',
-    padding: '12px',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '15px',
-    fontWeight: 600,
-    marginTop: '8px',
-  },
-  footer: {
-    marginTop: '24px',
-    fontSize: '13px',
-    color: 'var(--text-secondary)',
-    textAlign: 'center' as CSSProperties['textAlign'],
-  },
-};

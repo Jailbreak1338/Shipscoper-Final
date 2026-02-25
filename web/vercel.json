@@ -6,6 +6,10 @@
     {
       "path": "/api/cron/trigger-scraper",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/check-containers",
+      "schedule": "0 */2 * * *"
     }
   ]
 }

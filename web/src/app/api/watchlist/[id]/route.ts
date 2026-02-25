@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
+import { sendResendEmail, buildWatchlistEmail } from '@/lib/resend';
 
 /** PATCH /api/watchlist/[id] — toggle notification or update fields */
 export async function PATCH(
@@ -40,6 +41,20 @@ export async function PATCH(
   if (error) {
     console.error('Failed to update watch:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Email when notifications are turned on
+  if (body.notification_enabled === true && session.user.email) {
+    sendResendEmail({
+      to: session.user.email,
+      subject: `Watch aktiviert: ${data.vessel_name}`,
+      html: buildWatchlistEmail({
+        vesselName: data.vessel_name,
+        shipmentReference: data.shipment_reference ?? null,
+        eta: data.last_known_eta ?? null,
+        isUpdate: false,
+      }),
+    }).catch((e) => console.error('[watchlist] email error:', e));
   }
 
   return NextResponse.json({ watch: data });
