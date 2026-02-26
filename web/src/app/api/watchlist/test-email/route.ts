@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
+import { getValidatedScraperUrl } from '@/lib/security';
 
 export async function POST() {
   const supabase = createRouteHandlerClient({ cookies });
@@ -12,18 +13,11 @@ export async function POST() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let scraperUrl = process.env.RAILWAY_SCRAPER_URL;
+  const scraperUrl = getValidatedScraperUrl(process.env.RAILWAY_SCRAPER_URL);
   const webhookSecret = process.env.WEBHOOK_SECRET;
 
   if (!scraperUrl || !webhookSecret) {
-    return NextResponse.json(
-      { error: 'RAILWAY_SCRAPER_URL or WEBHOOK_SECRET not configured' },
-      { status: 500 }
-    );
-  }
-
-  if (!scraperUrl.startsWith('http://') && !scraperUrl.startsWith('https://')) {
-    scraperUrl = `https://${scraperUrl}`;
+    return NextResponse.json({ error: 'Test email not available' }, { status: 500 });
   }
 
   try {
@@ -37,20 +31,17 @@ export async function POST() {
       cache: 'no-store',
     });
 
-    const body = await response.json();
+    const body = await response.json().catch(() => ({}));
     if (!response.ok) {
-      return NextResponse.json(
-        { error: body.error || `Test email failed (${response.status})` },
-        { status: 502 }
-      );
+      console.error('test-email scraper error:', response.status);
+      return NextResponse.json({ error: 'Test email failed' }, { status: 502 });
     }
 
     // Fire-and-forget: scraper accepted the job, email will be sent in background (~30s).
-    // Return immediately to avoid Vercel function timeout issues.
     const jobId = typeof body.job_id === 'string' ? body.job_id : null;
     return NextResponse.json({ queued: true, email: session.user.email, jobId });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('test-email error:', error);
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

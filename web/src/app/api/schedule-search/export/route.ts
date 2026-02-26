@@ -101,7 +101,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const q = (request.nextUrl.searchParams.get('q') ?? '').trim();
   const source = (request.nextUrl.searchParams.get('source') ?? 'all').trim().toLowerCase();
   const sort = (request.nextUrl.searchParams.get('sort') ?? 'scraped_desc').trim().toLowerCase();
-  const etaWindow = (request.nextUrl.searchParams.get('etaWindow') ?? 'all').trim().toLowerCase();
+  const VALID_ETA_WINDOWS = new Set(['all', '7d', '14d', '30d', 'overdue', 'unknown']);
+  const rawWindow = (request.nextUrl.searchParams.get('etaWindow') ?? 'all').trim().toLowerCase();
+  const etaWindow = VALID_ETA_WINDOWS.has(rawWindow) ? rawWindow : 'all';
 
   const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
   const admin = getSupabaseAdmin();
@@ -115,7 +117,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const { data, error } = await sorted.limit(5000);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('schedule-search export error:', error);
+    return NextResponse.json({ error: 'Export failed' }, { status: 500 });
   }
 
   const rows = (data ?? []) as ScheduleEventRowRaw[];

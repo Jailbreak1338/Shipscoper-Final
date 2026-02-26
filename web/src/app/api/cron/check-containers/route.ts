@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getValidatedScraperUrl } from '@/lib/security';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,18 +20,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let scraperUrl = process.env.RAILWAY_SCRAPER_URL;
+  const scraperUrl = getValidatedScraperUrl(process.env.RAILWAY_SCRAPER_URL);
   const webhookSecret = process.env.WEBHOOK_SECRET;
 
   if (!scraperUrl || !webhookSecret) {
-    return NextResponse.json(
-      { error: 'RAILWAY_SCRAPER_URL or WEBHOOK_SECRET not configured' },
-      { status: 500 }
-    );
-  }
-
-  if (!scraperUrl.startsWith('http://') && !scraperUrl.startsWith('https://')) {
-    scraperUrl = `https://${scraperUrl}`;
+    return NextResponse.json({ error: 'Scraper not configured' }, { status: 500 });
   }
 
   try {
@@ -43,16 +37,13 @@ export async function GET(req: NextRequest) {
     const body = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      return NextResponse.json(
-        { error: 'Container check trigger failed', status: response.status, body },
-        { status: 502 }
-      );
+      console.error('[cron/check-containers] scraper returned', response.status);
+      return NextResponse.json({ error: 'Container check trigger failed' }, { status: 502 });
     }
 
     return NextResponse.json({ ok: true, job: body, timestamp: new Date().toISOString() });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[cron/check-containers]', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('[cron/check-containers]', error);
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

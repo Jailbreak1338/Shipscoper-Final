@@ -21,17 +21,20 @@ CREATE TABLE IF NOT EXISTS vessel_watches (
 -- Migration: Add container_reference column (run once in Supabase SQL editor if table already exists)
 -- ALTER TABLE vessel_watches ADD COLUMN IF NOT EXISTS container_reference TEXT;
 
-CREATE INDEX idx_vessel_watches_user_id ON vessel_watches(user_id);
-CREATE INDEX idx_vessel_watches_normalized ON vessel_watches(vessel_name_normalized);
-CREATE INDEX idx_vessel_watches_active ON vessel_watches(notification_enabled);
+CREATE INDEX IF NOT EXISTS idx_vessel_watches_user_id ON vessel_watches(user_id);
+CREATE INDEX IF NOT EXISTS idx_vessel_watches_normalized ON vessel_watches(vessel_name_normalized);
+CREATE INDEX IF NOT EXISTS idx_vessel_watches_active ON vessel_watches(notification_enabled);
 
 -- RLS: Users see only their own watches
 ALTER TABLE vessel_watches ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users manage own watches"
-  ON vessel_watches FOR ALL
-  TO authenticated
-  USING (user_id = auth.uid());
+DO $$ BEGIN
+  CREATE POLICY "Users manage own watches"
+    ON vessel_watches FOR ALL
+    TO authenticated
+    USING (user_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Table: eta_change_notifications
 -- Log of all ETA changes for watched vessels
@@ -48,17 +51,20 @@ CREATE TABLE IF NOT EXISTS eta_change_notifications (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_eta_notifications_watch_id ON eta_change_notifications(watch_id);
-CREATE INDEX idx_eta_notifications_created_at ON eta_change_notifications(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_eta_notifications_watch_id ON eta_change_notifications(watch_id);
+CREATE INDEX IF NOT EXISTS idx_eta_notifications_created_at ON eta_change_notifications(created_at DESC);
 
 -- RLS: Users see notifications for their own watches
 ALTER TABLE eta_change_notifications ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users see own notifications"
-  ON eta_change_notifications FOR SELECT
-  TO authenticated
-  USING (
-    watch_id IN (
-      SELECT id FROM vessel_watches WHERE user_id = auth.uid()
-    )
-  );
+DO $$ BEGIN
+  CREATE POLICY "Users see own notifications"
+    ON eta_change_notifications FOR SELECT
+    TO authenticated
+    USING (
+      watch_id IN (
+        SELECT id FROM vessel_watches WHERE user_id = auth.uid()
+      )
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;

@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { detectColumns, processExcel, ColumnMapping } from '@/lib/excel';
 import { normalizeVesselName } from '@/lib/normalize';
 import { getClientIp, extractShipmentNumbers } from '@/lib/security';
-import { cleanupExpiredTmpFiles, getTmpFilePath, TMP_TTL_MIN } from '@/lib/tmpFiles';
+import { cleanupExpiredTmpFiles, getTmpFilePath, getTmpMetaPath, TMP_TTL_MIN } from '@/lib/tmpFiles';
 import { revalidatePath } from 'next/cache';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
@@ -430,6 +430,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const jobId = crypto.randomUUID();
     const tmpPath = getTmpFilePath(jobId);
     await writeFile(tmpPath, updatedBuffer);
+    // Write ownership meta so the download route can enforce user-specific access
+    await writeFile(getTmpMetaPath(jobId), JSON.stringify({ userId: session.user.id }));
 
     // Log upload activity
     const processingTimeMs = Date.now() - startTime;
@@ -490,16 +492,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const message =
       error instanceof Error ? error.message : 'Internal server error';
 
-    if (message.includes('Supabase')) {
+    if (message.includes('Supabase') || message.toLowerCase().includes('database')) {
       return NextResponse.json(
-        {
-          error:
-            'Database connection error. Please check your Supabase configuration and try again.',
-        },
+        { error: 'Database connection error. Please try again later.' },
         { status: 503 }
       );
     }
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    // Return generic message — never leak internal error details to the client
+    return NextResponse.json({ error: 'Failed to process file. Please try again.' }, { status: 500 });
   }
 }

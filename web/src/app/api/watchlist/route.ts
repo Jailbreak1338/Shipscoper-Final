@@ -48,11 +48,12 @@ export async function GET() {
     .from('vessel_watches')
     .select('*')
     .eq('user_id', session.user.id)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(200); // Prevent resource exhaustion via unbounded result sets
 
   if (error) {
     console.error('Failed to fetch watchlist:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to load watchlist' }, { status: 500 });
   }
 
   // Enrich with fresh ETAs from latest_schedule (overrides potentially stale last_known_eta)
@@ -83,6 +84,8 @@ export async function GET() {
 
     // Enrich with container statuses from container_latest_status
     try {
+      const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
+      const admin = getSupabaseAdmin();
       const watchIds = (data ?? []).map((w) => w.id);
       if (watchIds.length > 0) {
         const { data: statuses } = await admin

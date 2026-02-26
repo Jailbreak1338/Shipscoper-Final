@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
+import { getValidatedScraperUrl } from '@/lib/security';
 
 async function isAdmin(userId: string): Promise<boolean> {
   // Use service-role client to bypass RLS for the role check
@@ -55,34 +56,25 @@ export async function POST() {
   }
 
   try {
-    // Call Railway-hosted scraper API instead of spawning subprocess
-    // Fix by tim-k: Use HTTP webhook instead of subprocess to avoid Python path issues
-    let scraperUrl = process.env.RAILWAY_SCRAPER_URL;
+    // Call Railway-hosted scraper API via authenticated webhook
+    const scraperUrl = getValidatedScraperUrl(process.env.RAILWAY_SCRAPER_URL);
     const webhookSecret = process.env.WEBHOOK_SECRET;
 
     if (!scraperUrl || !webhookSecret) {
-      throw new Error('RAILWAY_SCRAPER_URL or WEBHOOK_SECRET not configured');
-    }
-
-    // Ensure URL has protocol (add https:// if missing)
-    if (!scraperUrl.startsWith('http://') && !scraperUrl.startsWith('https://')) {
-      scraperUrl = `https://${scraperUrl}`;
+      throw new Error('Scraper not configured');
     }
 
     const response = await fetch(`${scraperUrl}/webhook/run-scraper`, {
       method: 'POST',
-      headers: {
-        'X-Webhook-Secret': webhookSecret,
-      },
+      headers: { 'X-Webhook-Secret': webhookSecret },
     });
 
-    const body = await response.json();
-
     if (!response.ok) {
-      throw new Error(`Scraper API returned ${response.status}: ${JSON.stringify(body)}`);
+      const body = await response.json().catch(() => ({}));
+      throw new Error(`Scraper API returned ${response.status}`);
     }
 
-    // Poll for completion (Railway runs scraper in background)
+    // Poll for completion — include webhook secret now that /status is auth-protected
     let attempts = 0;
     const maxAttempts = 60; // 5 minutes max (60 * 5s)
     let finalStatus = null;
@@ -92,6 +84,7 @@ export async function POST() {
 
       const statusResponse = await fetch(`${scraperUrl}/status`, {
         method: 'GET',
+        headers: { 'X-Webhook-Secret': webhookSecret },
       });
 
       if (statusResponse.ok) {
@@ -173,7 +166,7 @@ export async function POST() {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('Scraper execution error:', message);
 
-    // Update run log with failure
+    // Update run log with failure (store internal message in DB, not in response)
     await admin
       .from('scraper_runs')
       .update({
@@ -186,7 +179,7 @@ export async function POST() {
     revalidatePath('/admin');
 
     return NextResponse.json(
-      { success: false, error: message, run_id: runLog.id },
+      { success: false, error: 'Scraper run failed', run_id: runLog.id },
       { status: 500 }
     );
   }
@@ -225,15 +218,13 @@ export async function GET() {
   // Reconcile stale "running" status against live scraper API status.
   if (lastRun.status === 'running') {
     try {
-      let scraperUrl = process.env.RAILWAY_SCRAPER_URL;
-      if (scraperUrl) {
-        if (!scraperUrl.startsWith('http://') && !scraperUrl.startsWith('https://')) {
-          scraperUrl = `https://${scraperUrl}`;
-        }
-
+      const scraperUrl = getValidatedScraperUrl(process.env.RAILWAY_SCRAPER_URL);
+      const webhookSecret = process.env.WEBHOOK_SECRET;
+      if (scraperUrl && webhookSecret) {
         const statusResponse = await fetch(`${scraperUrl}/status`, {
           method: 'GET',
           cache: 'no-store',
+          headers: { 'X-Webhook-Secret': webhookSecret },
         });
 
         if (statusResponse.ok) {
