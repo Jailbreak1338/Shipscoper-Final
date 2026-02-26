@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getValidatedScraperUrl } from '@/lib/security';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -22,36 +23,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let scraperUrl = process.env.RAILWAY_SCRAPER_URL;
+  const scraperUrl = getValidatedScraperUrl(process.env.RAILWAY_SCRAPER_URL);
   const webhookSecret = process.env.WEBHOOK_SECRET;
 
   if (!scraperUrl || !webhookSecret) {
-    return NextResponse.json(
-      { error: 'RAILWAY_SCRAPER_URL or WEBHOOK_SECRET not configured' },
-      { status: 500 }
-    );
-  }
-
-  // Ensure URL has protocol (add https:// if missing)
-  if (!scraperUrl.startsWith('http://') && !scraperUrl.startsWith('https://')) {
-    scraperUrl = `https://${scraperUrl}`;
+    return NextResponse.json({ error: 'Scraper not configured' }, { status: 500 });
   }
 
   try {
     const response = await fetch(`${scraperUrl}/webhook/run-scraper`, {
       method: 'POST',
-      headers: {
-        'X-Webhook-Secret': webhookSecret,
-      },
+      headers: { 'X-Webhook-Secret': webhookSecret },
     });
 
-    const body = await response.json();
+    const body = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      return NextResponse.json(
-        { error: 'Scraper trigger failed', status: response.status, body },
-        { status: 502 }
-      );
+      console.error('Cron trigger-scraper: scraper returned', response.status);
+      return NextResponse.json({ error: 'Scraper trigger failed' }, { status: 502 });
     }
 
     return NextResponse.json({
@@ -60,8 +49,7 @@ export async function GET(req: NextRequest) {
       timestamp: new Date().toISOString(),
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Cron trigger-scraper error:', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('Cron trigger-scraper error:', error);
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

@@ -3,8 +3,16 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-// Simple in-memory rate limiting (use Redis in production)
+// Simple in-memory rate limiting (use Redis in production for multi-instance setups)
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+
+// Periodically prune expired entries to prevent unbounded memory growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of rateLimitMap.entries()) {
+    if (now > record.resetTime) rateLimitMap.delete(key);
+  }
+}, 120_000);
 
 function checkRateLimit(
   ip: string,
@@ -33,12 +41,11 @@ export async function middleware(req: NextRequest) {
   // Create Supabase client
   const supabase = createMiddlewareClient({ req, res });
 
-  // Get IP address for rate limiting
-  const ip =
-    req.ip ||
-    req.headers.get('x-forwarded-for')?.split(',')[0] ||
-    req.headers.get('x-real-ip') ||
-    'unknown';
+  // Get IP address for rate limiting.
+  // On Vercel, req.ip is set by the edge network and cannot be spoofed.
+  // We deliberately avoid trusting X-Forwarded-For from the client to prevent
+  // rate-limit bypass attacks via IP header spoofing.
+  const ip = req.ip ?? 'unknown';
 
   // Rate limiting (100 requests per minute)
   if (!checkRateLimit(ip, 100, 60000)) {
@@ -57,14 +64,20 @@ export async function middleware(req: NextRequest) {
     'Permissions-Policy',
     'geolocation=(), microphone=(), camera=()'
   );
+  // HSTS: force HTTPS for 1 year, include subdomains
+  res.headers.set(
+    'Strict-Transport-Security',
+    'max-age=31536000; includeSubDomains; preload'
+  );
+  // CSP: removed unsafe-eval (not required in Next.js production builds)
   res.headers.set(
     'Content-Security-Policy',
     "default-src 'self'; " +
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+      "script-src 'self' 'unsafe-inline'; " +
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
       "img-src 'self' data: https:; " +
       "font-src 'self' data: https://fonts.gstatic.com; " +
-      "connect-src 'self' https://*.supabase.co;"
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co;"
   );
 
   // Get session

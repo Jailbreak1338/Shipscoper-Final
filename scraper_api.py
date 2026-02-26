@@ -104,7 +104,10 @@ def trigger_scraper():
 
 @app.route("/status", methods=["GET"])
 def status():
-    """Return the current pipeline status."""
+    """Return the current pipeline status. Requires X-Webhook-Secret header."""
+    secret = request.headers.get("X-Webhook-Secret", "")
+    if not WEBHOOK_SECRET or secret != WEBHOOK_SECRET:
+        return jsonify({"error": "Unauthorized"}), 401
     with _lock:
         return jsonify(_last_run)
 
@@ -126,6 +129,10 @@ def trigger_test_email():
     to_email = str(payload.get("to_email", "")).strip()
     if not to_email:
         return jsonify({"error": "Missing to_email"}), 400
+    # Basic email format validation to prevent header injection
+    import re as _re
+    if not _re.match(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$', to_email) or len(to_email) > 254:
+        return jsonify({"error": "Invalid email address"}), 400
 
     job_id = str(uuid.uuid4())
     thread = threading.Thread(target=_run_test_email, args=(job_id, to_email), daemon=True)

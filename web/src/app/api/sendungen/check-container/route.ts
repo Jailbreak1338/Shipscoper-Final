@@ -3,12 +3,10 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import path from 'path';
 import { exec } from 'child_process';
+import { getValidatedScraperUrl } from '@/lib/security';
 
 function scraperUrl(p: string): string {
-  let base = process.env.RAILWAY_SCRAPER_URL ?? '';
-  if (!base.startsWith('http://') && !base.startsWith('https://')) {
-    base = `https://${base}`;
-  }
+  const base = getValidatedScraperUrl(process.env.RAILWAY_SCRAPER_URL) ?? '';
   return `${base}${p}`;
 }
 
@@ -46,8 +44,8 @@ export async function POST() {
   } = await supabase.auth.getSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const railwayConfigured =
-    !!process.env.RAILWAY_SCRAPER_URL && !!process.env.WEBHOOK_SECRET;
+  const validatedScraperUrl = getValidatedScraperUrl(process.env.RAILWAY_SCRAPER_URL);
+  const railwayConfigured = !!validatedScraperUrl && !!process.env.WEBHOOK_SECRET;
 
   if (railwayConfigured) {
     const result = await tryRailway();
@@ -79,7 +77,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ status: 'running', mode: 'local' });
   }
 
-  if (!process.env.RAILWAY_SCRAPER_URL || !process.env.WEBHOOK_SECRET) {
+  if (!validatedScraperUrl || !process.env.WEBHOOK_SECRET) {
     return NextResponse.json({ error: 'Not configured' }, { status: 500 });
   }
 

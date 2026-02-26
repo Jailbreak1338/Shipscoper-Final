@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
+import { getValidatedScraperUrl } from '@/lib/security';
 
 export async function GET(request: NextRequest) {
   const supabase = createRouteHandlerClient({ cookies });
@@ -11,14 +12,14 @@ export async function GET(request: NextRequest) {
 
   const jobId = request.nextUrl.searchParams.get('jobId');
   if (!jobId) return NextResponse.json({ error: 'Missing jobId' }, { status: 400 });
+  // Validate UUID format to prevent path traversal / injection in downstream URL
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(jobId)) return NextResponse.json({ error: 'Invalid jobId' }, { status: 400 });
 
-  let scraperUrl = process.env.RAILWAY_SCRAPER_URL;
+  const scraperUrl = getValidatedScraperUrl(process.env.RAILWAY_SCRAPER_URL);
   const webhookSecret = process.env.WEBHOOK_SECRET;
   if (!scraperUrl || !webhookSecret) {
     return NextResponse.json({ status: 'unknown' });
-  }
-  if (!scraperUrl.startsWith('http://') && !scraperUrl.startsWith('https://')) {
-    scraperUrl = `https://${scraperUrl}`;
   }
 
   try {

@@ -73,3 +73,38 @@ export function extractShipmentNumbers(text: string): string[] {
   const matches = text.match(pattern) || [];
   return [...new Set(matches.map((s) => s.toUpperCase()))];
 }
+
+/**
+ * Validate and normalize RAILWAY_SCRAPER_URL.
+ * Returns the sanitized URL (always https://) or null if invalid.
+ * Prevents SSRF via misconfigured or attacker-supplied URLs.
+ */
+export function getValidatedScraperUrl(raw: string | undefined): string | null {
+  if (!raw) return null;
+  try {
+    // Prepend https:// only if no scheme present (but reject http://)
+    const withScheme = raw.startsWith('http://') || raw.startsWith('https://')
+      ? raw
+      : `https://${raw}`;
+    const url = new URL(withScheme);
+    // Only allow HTTPS in production environments
+    if (url.protocol !== 'https:') return null;
+    // Block localhost / private IPs to prevent SSRF to internal services
+    const hostname = url.hostname.toLowerCase();
+    if (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '0.0.0.0' ||
+      hostname.startsWith('10.') ||
+      hostname.startsWith('172.16.') ||
+      hostname.startsWith('192.168.') ||
+      hostname.endsWith('.internal')
+    ) {
+      return null;
+    }
+    // Strip trailing slash for consistent concatenation
+    return url.origin;
+  } catch {
+    return null;
+  }
+}

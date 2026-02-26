@@ -17,6 +17,10 @@ function fmtDate(iso: string | null): string {
   });
 }
 
+function escHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function buildEmailHtml(rows: FlaggedRow[], userEmail: string): string {
   const rowsHtml = rows
     .map(
@@ -53,7 +57,7 @@ function buildEmailHtml(rows: FlaggedRow[], userEmail: string): string {
     <tbody>${rowsHtml}</tbody>
   </table>
   <p style="margin-top:24px;color:#6b7280;font-size:13px">
-    Diese E-Mail wurde automatisch von Shipscoper für ${userEmail} generiert.
+    Diese E-Mail wurde automatisch von Shipscoper für ${escHtml(userEmail)} generiert.
   </p>
 </body>
 </html>`;
