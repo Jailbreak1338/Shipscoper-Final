@@ -52,7 +52,7 @@ cmds = [
 
 [phases.build]
 cmds = [
-  'bash -lc "set -e; libstdcpp=$(find /nix/store -path ''*/lib/libstdc++.so.6'' | head -n 1); if [ -z \"$libstdcpp\" ]; then echo ''libstdc++.so.6 not found in /nix/store''; exit 1; fi; ln -sf \"$libstdcpp\" /usr/lib/libstdc++.so.6; echo \"linked libstdc++ => $libstdcpp\"; ls -l /usr/lib/libstdc++.so.6"',
+  'ln -sf /root/.nix-profile/lib/libstdc++.so.6 /usr/lib/libstdc++.so.6 && ls -l /usr/lib/libstdc++.so.6',
   'python -m playwright install chromium'
 ]
 
