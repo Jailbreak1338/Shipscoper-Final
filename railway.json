@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu python3 -m gunicorn scraper_api:app --bind 0.0.0.0:${PORT:-8080} --timeout 300 --workers 1",
+    "startCommand": "python3 -m gunicorn scraper_api:app --bind 0.0.0.0:${PORT:-8080} --timeout 300 --workers 1",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
