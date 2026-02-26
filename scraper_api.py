@@ -161,9 +161,17 @@ def _run_check_containers(job_id: str):
     """Run checkContainers.ts Node.js job in a background thread."""
     import subprocess
 
-    # On Windows, npx is a .cmd file and won't be found as a bare "npx" in subprocess.
-    npx_cmd = "npx.cmd" if os.name == "nt" else "npx"
     script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # /root/.profile adds /app/node_modules/.bin to PATH, but only for login
+    # shells — gunicorn subprocesses do NOT source it.  We set PATH explicitly
+    # so npx/tsx can be found without relying on the profile.
+    node_bin = os.path.join(script_dir, "node_modules", ".bin")
+    env = {**os.environ, "PATH": f"{node_bin}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+    # On Windows npx ships as npx.cmd; on Linux/Mac it is just npx.
+    npx_cmd = "npx.cmd" if os.name == "nt" else "npx"
+
     try:
         result = subprocess.run(
             [npx_cmd, "tsx", "src/jobs/checkContainers.ts"],
@@ -171,6 +179,7 @@ def _run_check_containers(job_id: str):
             text=True,
             timeout=300,
             cwd=script_dir,
+            env=env,
         )
         with _lock:
             _container_jobs[job_id] = {

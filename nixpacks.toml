@@ -11,8 +11,11 @@
 
 [variables]
 PIP_BREAK_SYSTEM_PACKAGES = "1"
-# LD_LIBRARY_PATH must NOT be set here (Docker ENV = all build stages) as it breaks Nix bash.
-# It is set inline in the start command so it only affects the Python/gunicorn process at runtime.
+# LD_LIBRARY_PATH is intentionally NOT set here — as a Docker ENV it would affect all
+# build stages and break the Nix bash/Python binary's own RPATH resolution.
+# The apt-installed Playwright deps (libglib, libnss3 …) are registered in the
+# system ldconfig cache via 'Processing triggers for libc-bin', so Chromium finds
+# them through the standard linker path without any LD_LIBRARY_PATH override.
 
 [phases.setup]
 nixPkgs = ['python311', 'python311Packages.pip', 'nodejs_20']
