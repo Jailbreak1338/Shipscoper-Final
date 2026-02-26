@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ status: 'running', mode: 'local' });
   }
 
-  if (!validatedScraperUrl || !process.env.WEBHOOK_SECRET) {
+  if (!getValidatedScraperUrl(process.env.RAILWAY_SCRAPER_URL) || !process.env.WEBHOOK_SECRET) {
     return NextResponse.json({ error: 'Not configured' }, { status: 500 });
   }
 
