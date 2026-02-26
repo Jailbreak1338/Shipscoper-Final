@@ -31,9 +31,9 @@ CREATE TABLE IF NOT EXISTS status_check_runs (
   checked_ok        INTEGER   DEFAULT 0,
   checked_failed    INTEGER   DEFAULT 0,
   changed           INTEGER   DEFAULT 0,
-  ok_count          INTEGER   DEFAULT 0 GENERATED ALWAYS AS (checked_ok) STORED,
-  fail_count        INTEGER   DEFAULT 0 GENERATED ALWAYS AS (checked_failed) STORED,
-  skip_count        INTEGER   DEFAULT 0 GENERATED ALWAYS AS (shipments_skipped) STORED,
+  ok_count          INTEGER   GENERATED ALWAYS AS (checked_ok) STORED,
+  fail_count        INTEGER   GENERATED ALWAYS AS (checked_failed) STORED,
+  skip_count        INTEGER   GENERATED ALWAYS AS (shipments_skipped) STORED,
   summary_json    JSONB,
   log_text        TEXT
 );
