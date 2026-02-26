@@ -84,6 +84,8 @@ export async function GET() {
 
     // Enrich with container statuses from container_latest_status
     try {
+      const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
+      const admin = getSupabaseAdmin();
       const watchIds = (data ?? []).map((w) => w.id);
       if (watchIds.length > 0) {
         const { data: statuses } = await admin
