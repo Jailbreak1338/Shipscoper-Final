@@ -51,7 +51,10 @@ cmds = [
 ]
 
 [phases.build]
-cmds = ['python -m playwright install chromium']
+cmds = [
+  'bash -lc "set -e; libstdcpp=$(find /nix/store -path ''*/lib/libstdc++.so.6'' | head -n 1); if [ -z \"$libstdcpp\" ]; then echo ''libstdc++.so.6 not found in /nix/store''; exit 1; fi; ln -sf \"$libstdcpp\" /usr/lib/libstdc++.so.6; echo \"linked libstdc++ => $libstdcpp\"; ls -l /usr/lib/libstdc++.so.6"',
+  'python -m playwright install chromium'
+]
 
 [start]
-cmd = "bash -lc \"export LD_LIBRARY_PATH=${NIX_LD_LIBRARY_PATH:-}; exec python -m gunicorn scraper_api:app --bind 0.0.0.0:${PORT:-8080} --timeout 300 --workers 1 --error-logfile - --access-logfile - --capture-output --log-level info\""
+cmd = "bash -lc \"export LD_LIBRARY_PATH=/root/.nix-profile/lib; exec python -m gunicorn scraper_api:app --bind 0.0.0.0:${PORT:-8080} --timeout 300 --workers 1 --error-logfile - --access-logfile - --capture-output --log-level info\""
