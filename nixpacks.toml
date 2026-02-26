@@ -15,7 +15,7 @@ PIP_BREAK_SYSTEM_PACKAGES = "1"
 # It is set inline in the start command so it only affects the Python/gunicorn process at runtime.
 
 [phases.setup]
-nixPkgs = ['python311', 'python311Packages.pip', 'nodejs_20']
+nixPkgs = ['python311', 'python311Packages.pip', 'nodejs_20', 'stdenv.cc.cc.lib']
 aptPkgs = [
   "libstdc++6",
   "libgcc-s1",
@@ -54,4 +54,4 @@ cmds = [
 cmds = ['python -m playwright install chromium']
 
 [start]
-cmd = "bash -lc \"exec python -m gunicorn scraper_api:app --bind 0.0.0.0:${PORT:-8080} --timeout 300 --workers 1 --error-logfile - --access-logfile - --capture-output --log-level info\""
+cmd = "bash -lc \"export LD_LIBRARY_PATH=${NIX_LD_LIBRARY_PATH:-}; exec python -m gunicorn scraper_api:app --bind 0.0.0.0:${PORT:-8080} --timeout 300 --workers 1 --error-logfile - --access-logfile - --capture-output --log-level info\""
