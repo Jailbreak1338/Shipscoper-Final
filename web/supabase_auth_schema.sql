@@ -11,16 +11,22 @@ ALTER TABLE vessels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE schedule_events ENABLE ROW LEVEL SECURITY;
 
 -- Allow authenticated users to read vessels
-CREATE POLICY "Authenticated users can read vessels"
-  ON vessels FOR SELECT
-  TO authenticated
-  USING (true);
+DO $$ BEGIN
+  CREATE POLICY "Authenticated users can read vessels"
+    ON vessels FOR SELECT
+    TO authenticated
+    USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Allow authenticated users to read schedule_events
-CREATE POLICY "Authenticated users can read schedule_events"
-  ON schedule_events FOR SELECT
-  TO authenticated
-  USING (true);
+DO $$ BEGIN
+  CREATE POLICY "Authenticated users can read schedule_events"
+    ON schedule_events FOR SELECT
+    TO authenticated
+    USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================
 -- 2. User roles table
@@ -34,37 +40,46 @@ CREATE TABLE IF NOT EXISTS user_roles (
   UNIQUE(user_id)
 );
 
-CREATE INDEX idx_user_roles_user_id ON user_roles(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id);
 
 ALTER TABLE user_roles ENABLE ROW LEVEL SECURITY;
 
 -- Users can read their own role
-CREATE POLICY "Users can read own role"
-  ON user_roles FOR SELECT
-  TO authenticated
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can read own role"
+    ON user_roles FOR SELECT
+    TO authenticated
+    USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Admins can read all roles
-CREATE POLICY "Admins can read all roles"
-  ON user_roles FOR SELECT
-  TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM user_roles ur
-      WHERE ur.user_id = auth.uid() AND ur.role = 'admin'
-    )
-  );
+DO $$ BEGIN
+  CREATE POLICY "Admins can read all roles"
+    ON user_roles FOR SELECT
+    TO authenticated
+    USING (
+      EXISTS (
+        SELECT 1 FROM user_roles ur
+        WHERE ur.user_id = auth.uid() AND ur.role = 'admin'
+      )
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Admins can insert/update roles
-CREATE POLICY "Admins can manage roles"
-  ON user_roles FOR ALL
-  TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM user_roles ur
-      WHERE ur.user_id = auth.uid() AND ur.role = 'admin'
-    )
-  );
+DO $$ BEGIN
+  CREATE POLICY "Admins can manage roles"
+    ON user_roles FOR ALL
+    TO authenticated
+    USING (
+      EXISTS (
+        SELECT 1 FROM user_roles ur
+        WHERE ur.user_id = auth.uid() AND ur.role = 'admin'
+      )
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================
 -- 3. Upload activity tracking
@@ -84,29 +99,35 @@ CREATE TABLE IF NOT EXISTS upload_logs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_upload_logs_user_id ON upload_logs(user_id);
-CREATE INDEX idx_upload_logs_created_at ON upload_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_upload_logs_user_id ON upload_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_upload_logs_created_at ON upload_logs(created_at DESC);
 
 ALTER TABLE upload_logs ENABLE ROW LEVEL SECURITY;
 
 -- Users see own logs, admins see all
-CREATE POLICY "Users see own upload logs"
-  ON upload_logs FOR SELECT
-  TO authenticated
-  USING (
-    auth.uid() = user_id
-    OR
-    EXISTS (
-      SELECT 1 FROM user_roles
-      WHERE user_id = auth.uid() AND role = 'admin'
-    )
-  );
+DO $$ BEGIN
+  CREATE POLICY "Users see own upload logs"
+    ON upload_logs FOR SELECT
+    TO authenticated
+    USING (
+      auth.uid() = user_id
+      OR
+      EXISTS (
+        SELECT 1 FROM user_roles
+        WHERE user_id = auth.uid() AND role = 'admin'
+      )
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Authenticated users can insert their own logs
-CREATE POLICY "Users can insert own upload logs"
-  ON upload_logs FOR INSERT
-  TO authenticated
-  WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can insert own upload logs"
+    ON upload_logs FOR INSERT
+    TO authenticated
+    WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================
 -- 4. Scraper run logs (admin only)
@@ -121,42 +142,51 @@ CREATE TABLE IF NOT EXISTS scraper_runs (
   completed_at TIMESTAMPTZ
 );
 
-CREATE INDEX idx_scraper_runs_started_at ON scraper_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scraper_runs_started_at ON scraper_runs(started_at DESC);
 
 ALTER TABLE scraper_runs ENABLE ROW LEVEL SECURITY;
 
 -- Only admins can see scraper runs
-CREATE POLICY "Only admins see scraper runs"
-  ON scraper_runs FOR SELECT
-  TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM user_roles
-      WHERE user_id = auth.uid() AND role = 'admin'
-    )
-  );
+DO $$ BEGIN
+  CREATE POLICY "Only admins see scraper runs"
+    ON scraper_runs FOR SELECT
+    TO authenticated
+    USING (
+      EXISTS (
+        SELECT 1 FROM user_roles
+        WHERE user_id = auth.uid() AND role = 'admin'
+      )
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Only admins can insert scraper runs
-CREATE POLICY "Only admins can insert scraper runs"
-  ON scraper_runs FOR INSERT
-  TO authenticated
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM user_roles
-      WHERE user_id = auth.uid() AND role = 'admin'
-    )
-  );
+DO $$ BEGIN
+  CREATE POLICY "Only admins can insert scraper runs"
+    ON scraper_runs FOR INSERT
+    TO authenticated
+    WITH CHECK (
+      EXISTS (
+        SELECT 1 FROM user_roles
+        WHERE user_id = auth.uid() AND role = 'admin'
+      )
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Only admins can update scraper runs
-CREATE POLICY "Only admins can update scraper runs"
-  ON scraper_runs FOR UPDATE
-  TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM user_roles
-      WHERE user_id = auth.uid() AND role = 'admin'
-    )
-  );
+DO $$ BEGIN
+  CREATE POLICY "Only admins can update scraper runs"
+    ON scraper_runs FOR UPDATE
+    TO authenticated
+    USING (
+      EXISTS (
+        SELECT 1 FROM user_roles
+        WHERE user_id = auth.uid() AND role = 'admin'
+      )
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================
 -- 5. Helper function: check if user is admin

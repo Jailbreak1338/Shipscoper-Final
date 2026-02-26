@@ -1,309 +1,307 @@
- Automation - Vessel Schedule Scr
-Automatisiertes Scraping von Schiffsankunftszeiten (ETAs) der Hamburger Container-Terminals **EUROGATE** und **HHLA**, mit Cross-Matching, Excel-Export und E-Mail-Automatisierung.
-Features
- *Eurogate Scraper* — Session-basiert, parst komplexe Rowspan-Tabelle
-- **HHLA Scraper** — Playwright-basiert (JavaScript SPA), 14 Spalten
-- **Cross-Matching** — Fuzzy Name Matching + ETA-Datum zwischen Terminals
-- **Excel-Export** — Formatierte Tabelle mit Auto-Spaltenbreiten, Freeze Panes
-- **E-Mail-Automatisierung** — IMAP/SMTP: Excel-Anhang als Trigger, erzeugt frischen Live-Report und sendet ihn zurück
-- **CLI-Interface** — Click-basiert mit mehreren Commands
-- **Logging** — Loguru mit Rotation und File-Output
+# Shipscoper
 
-Architektur
-```
-eta-automation/
-├── main.py                    # CLI Entry Point
-├── scraper_api.py             # Flask API für Railway (Webhook)
-├── check_eta_changes.py       # Watchlist: ETA-Änderungen prüfen
-├── config.yaml                # Zentrale Konfiguration
-├── .env                       # Credentials (nicht in Git!)
-├── requirements.txt
-├── Procfile                   # Railway Deployment
-├── railway.json               # Railway Config
-│
-├── scraper/
-│   ├── base_scraper.py        # Abstract Base Class
-│   ├── eurogate_scraper.py    # Eurogate (requests + BS4)
-│   ├── hhla_scraper.py        # HHLA (Playwright + BS4)
-│   ├── supabase_writer.py     # Supabase Sync
-│   └── email_sender.py        # ETA-Benachrichtigungen per E-Mail
-│
-├── processor/
-│   └── excel_processor.py     # Cross-Match + Excel-Export
-│
-├── orchestrator/
-│   ├── pipeline.py            # Full Pipeline (Scrape → Sync → Notify)
-│   └── email_handler.py       # IMAP/SMTP Automation
-│
-├── utils/
-│   ├── config_loader.py       # YAML + .env Loader
-│   └── logger.py              # Loguru Setup
-│
-├── web/                       # Next.js Web-App (Vercel)
-│   ├── src/app/
-│   │   ├── eta-updater/       # Excel Upload + Processing
-│   │   ├── dashboard/         # Upload-Statistiken
-│   │   └── watchlist/         # Vessel Watchlist UI
-│   └── vercel.json            # Vercel Cron Config
-│
-├── docs/
-│   ├── DEPLOYMENT.md          # Deployment-Anleitung
-│   └── WATCHLIST.md           # Watchlist-Benutzerhandbuch
-│
-├── tests/
-├── deployment/
-├── data/
-└── logs/
-```
-
-## Installation
-
-```bash
-# 1. Repository klonen / Ordner erstellen
-cd C:\Users\tim-k\OneDrive\Dokumente\eta-automation
-
-# 2. Virtual Environment erstellen
-python -m venv venv
-
-# 3. Aktivieren
-# Windows:
-venv\Scripts\activate
-# Linux/Mac:
-source venv/bin/activate
-
-# 4. Dependencies installieren
-pip install -r requirements.txt
-
-# 5. Playwright Browser installieren
-playwright install chromium
-
-# 6. .env konfigurieren (für E-Mail-Funktion)
-# EMAIL_ADDRESS und EMAIL_PASSWORD setzen
-```
-
-## Usage
-
-### Full Pipeline (Scrape + Process + Excel)
-```bash
-python main.py run
-python main.py run --output custom_report.xlsx
-python main.py run --debug
-python main.py run --no-excel          # Nur scrapen
-python main.py run --email-mode        # Pipeline + E-Mail senden
-```
-
-### Nur Scraping
-```bash
-python main.py scrape
-```
-
-### Nur Verarbeitung (aus letzten JSONs)
-```bash
-python main.py process
-python main.py process --output report.xlsx
-```
-
-### E-Mail Workflow
-```bash
-python main.py email                   # Einmalig prüfen
-python main.py email --watch           # Dauerhaft überwachen
-```
-
-Hinweis:
-- Eingehende Excel-Anhänge werden archiviert (`data/inbox`), aber nicht direkt transformiert.
-- Die Antwort enthält immer einen frisch erzeugten Report aus dem Live-Scraping.
-
-### Aufräumen
-```bash
-python main.py clean                   # Dateien > 7 Tage löschen
-python main.py clean --days 3
-python main.py clean --dry-run         # Nur anzeigen
-```
-
-### Status
-```bash
-python main.py status
-```
-
-### Smoke-Test (lokal)
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/smoke_test.ps1
-```
-
-## Deployment
-
-### Produktiv: Vercel + Railway
-
-Siehe **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** für die komplette Anleitung:
-
-- **Vercel** — Next.js Web-App + Cron Jobs
-- **Railway** — Python Scraper API
-- **Supabase** — Datenbank + Auth
-
-### Lokal: Windows Task Scheduler
-1. Task Scheduler öffnen
-2. "Create Basic Task"
-3. Trigger: Täglich / Alle 30 Min
-4. Action: `deployment\run_pipeline.bat` ausführen
-
-### Lokal: Linux/Mac Cron
-```bash
-chmod +x deployment/cron_setup.sh
-./deployment/cron_setup.sh
-```
-
-## Vessel Watchlist
-
-Siehe **[docs/WATCHLIST.md](docs/WATCHLIST.md)** — Vessels beobachten und bei ETA-Änderungen per E-Mail benachrichtigt werden.
-
-## Konfiguration
-
-### config.yaml
-- `scraper.*` — URLs, Timeouts, User-Agent
-- `processor.fuzzy_match_threshold` — Matching-Schwelle (0-100, default: 85)
-- `email.*` — Subject-Filter, erlaubte Absender, Antwort-Template
-- `clean.max_age_days` — Aufbewahrung alter Dateien
-- `logging.*` — Level, Format, Rotation
-
-### .env
-```
-SUPABASE_URL=https://xxx.supabase.co
-# Optional fallback alias used by some deployments:
-NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJ...
-
-EMAIL_ADDRESS=bot@firma.de
-EMAIL_PASSWORD=app-specific-password
-IMAP_SERVER=imap.gmail.com
-SMTP_SERVER=smtp.gmail.com
-```
-
-## Troubleshooting
-
-| Problem | Lösung |
-|---------|--------|
-| Eurogate "abgemeldet" | Session abgelaufen — Scraper startet automatisch neue Session |
-| HHLA "No table found" | JavaScript nicht geladen — Playwright Timeout erhöhen in config.yaml |
-| Playwright not found | `playwright install chromium` ausführen |
-| Email auth failed | App-Passwort in Gmail generieren (Sicherheit > App-Passwörter) |
-| Zu viele/wenige Matches | `fuzzy_match_threshold` in config.yaml anpassen (höher = strenger) |
+Vessel ETA tracking and container status notifications for the Hamburg terminals **HHLA** and **Eurogate**.
 
 ---
 
-## Container Tracking
+## Architecture
 
-Automatisches Status-Tracking für einzelne Container bei HHLA und Eurogate (Playwright-basiert, TypeScript Worker).
+Three services work together:
 
-### Wie es funktioniert
+| Service | Runtime | Hosting |
+|---------|---------|---------|
+| Python Scraper API | Python 3.11 + Flask + Playwright | Railway |
+| Next.js Frontend | Next.js 14 (App Router) + TypeScript | Vercel |
+| Node.js Container Worker | TypeScript + tsx + Playwright | Railway (via Flask trigger) |
 
-1. Alle `vessel_watches`-Einträge mit `notification_enabled=true` **und** gesetzter `container_reference` werden geladen.
-2. Pro Container wird HHLA oder Eurogate mit einem echten Browser gescrapt.
-3. Statusänderungen (Hash-Vergleich) werden in `container_latest_status`, `container_status_events` und `container_status_notifications` gespeichert.
-4. Beim ersten Erreichen von `DISCHARGED`, `READY` oder `DELIVERED_OUT` wird eine E-Mail gesendet (idempotent via Unique-Constraint in DB).
+**Database:** Supabase (PostgreSQL + Auth + RLS)
+**Email:** Resend (REST API, sender: `hello@shipscoper.com`)
 
-### Status-Modell
+---
 
-| Normalisierter Status | Bedeutung |
-|---|---|
-| `PREANNOUNCED` | Vorgemeldet / Avisiert |
-| `DISCHARGED` | Entladeauftrag erledigt (HHLA) |
-| `READY` | Bereit zur Verladung (HHLA) |
-| `DELIVERED_OUT` | Ausgeliefert (HHLA rawText oder Eurogate Bestandsstatus) |
+## Directory structure
 
-Priorität bei mehreren zutreffenden Bedingungen: `DELIVERED_OUT > READY > DISCHARGED > PREANNOUNCED`
+```
+shipscoper/
+├── scraper_api.py              Flask API — Railway entry point
+├── main.py                     CLI — local dev use
+├── config.yaml                 Scraper config (URLs, timeouts, thresholds)
+├── requirements.txt            Python dependencies
+├── nixpacks.toml               Railway Nixpacks build config
+├── railway.json                Railway deploy manifest
+├── Procfile                    Fallback start command
+│
+├── scraper/
+│   ├── hhla_scraper.py         Playwright SPA scraper (14 columns)
+│   ├── eurogate_scraper.py     requests + BS4, session-based, rowspan table
+│   ├── supabase_writer.py      Upserts vessels + schedule_events
+│   └── email_sender.py         SMTP ETA-change notifications (Python)
+│
+├── orchestrator/
+│   ├── pipeline.py             run_scrape() / run_full() / run_sync_from_latest()
+│   └── email_handler.py        IMAP inbox automation
+│
+├── processor/
+│   └── excel_processor.py      Fuzzy matching (Levenshtein) + Excel export
+│
+├── utils/
+│   ├── config_loader.py        YAML + .env loader
+│   ├── logger.py               Loguru setup
+│   └── normalization.py        Vessel name normalization
+│
+├── src/                        Node.js TypeScript container worker
+│   ├── jobs/checkContainers.ts Main container status job (7-day ETA filter)
+│   ├── providers/hhla.ts       HHLA coast.hhla.de Playwright scraper
+│   ├── providers/eurogate.ts   Eurogate portal scraper
+│   └── lib/
+│       ├── email.ts            Email sender (Resend / SES / none)
+│       ├── hash.ts             SHA-256 status fingerprint
+│       ├── supabase.ts         Supabase client
+│       └── types.ts            Shared TypeScript interfaces
+│
+├── web/                        Next.js 14 frontend (Vercel)
+│   ├── src/app/
+│   │   ├── page.tsx            Landing page (waitlist)
+│   │   ├── login/              Auth (Supabase email/password)
+│   │   ├── eta-updater/        Excel upload + ETA processing
+│   │   ├── watchlist/          Vessel watchlist (ETA sorted, notifications)
+│   │   ├── sendungen/          Shipment tracking — 3 tabs:
+│   │   │                         Container | Stückgut | Ohne ETA
+│   │   ├── schedule-search/    Search all vessel schedules (ETA sorted)
+│   │   ├── dashboard/          Upload stats
+│   │   ├── admin/              Admin panel
+│   │   │   └── users/          User management (invite-by-email)
+│   │   ├── impressum/          Impressum (§ 5 TMG)
+│   │   └── datenschutz/        Datenschutzerklärung (DSGVO)
+│   │
+│   └── src/app/api/
+│       ├── update-excel/       POST Excel → process → jobId
+│       ├── download/[jobId]/   GET processed Excel (30-min TTL in /tmp)
+│       ├── watchlist/          CRUD vessel watches
+│       ├── sendungen/          Container lookup per shipment
+│       │   └── auto-dispo/     POST → Resend email for red-flagged containers
+│       ├── cron/
+│       │   ├── trigger-scraper/   Daily scraper trigger (06:00 UTC)
+│       │   └── check-containers/  Container status check (every 2 h)
+│       └── admin/
+│           └── users/          Invite / list / role-change / delete users
+│
+├── migrations/
+│   ├── 20260221_container_tracking.sql
+│   └── 20260223_container_snr_pairs.sql
+│
+└── web/
+    ├── supabase_schema.sql           vessels, schedule_events, latest_schedule view
+    ├── supabase_auth_schema.sql      user_roles, upload_logs, scraper_runs
+    └── supabase_watchlist_schema.sql vessel_watches, eta_change_notifications
+```
 
-### Setup
+---
 
-#### 1. Supabase Migration ausführen
+## Features
 
-Im Supabase SQL-Editor:
+### Excel Upload (ETA Updater)
+- Upload customer Excel with vessel / ETA / shipment / container columns
+- Auto-detection of column positions via `detectColumns()`
+- Fuzzy vessel name matching (Levenshtein, threshold configurable via `MATCH_THRESHOLD`)
+- Updated ETAs written back into the Excel — downloadable within 30 minutes
+- Creates/updates `vessel_watches` per row with `container_snr_pairs` (ISO-6346 validated)
+
+### Sendungen (Shipment Tracking)
+Three tabs:
+
+| Tab | Content |
+|-----|---------|
+| **Container** | Containers with ETA/ETD, status, delivery date |
+| **Stückgut** | Shipments without container numbers |
+| **Ohne ETA** | Rows with no ETA — for easy manual follow-up |
+
+- All rows sorted by ETA ascending (nulls last)
+- **Delivery date** highlighted red when `Anliefertermin < ETD` (ship hasn't arrived yet)
+- **Auto-Dispo button**: collects all red-marked rows and sends a summary email via Resend to the logged-in user
+- **Notification bell** per row: toggle email alerts for status changes
+- Auto-refresh every 3 minutes
+
+### Vessel Watchlist
+- All vessel watches sorted by `last_known_eta` ascending
+- Auto-refresh every 3 minutes
+- Per-watch notification toggle (email on ETA change)
+
+### Container Status Tracking
+- Runs automatically via Vercel cron every 2 hours (`/api/cron/check-containers`)
+- **Only checks containers where `last_known_eta` is within 7 days** (avoids unnecessary scraping)
+- Status flow: `PREANNOUNCED → DISCHARGED → READY → DELIVERED_OUT`
+- Email sent on `DISCHARGED`, `READY`, `DELIVERED_OUT` (idempotent via DB UNIQUE constraint)
+- `notification_enabled` gates email only — status is always checked and stored
+
+### Schedule Search
+- Search all vessel schedules stored in Supabase
+- Default sort: ETA ascending
+
+### User Management (Admin)
+- Invite users by email — Resend sends a password-setup link from `hello@shipscoper.com`
+- Admins can change roles (user / admin) and delete accounts
+- Self-demotion and self-deletion protected
+
+### Cron Jobs (Vercel)
+| Schedule | Endpoint | Action |
+|----------|----------|--------|
+| `0 6 * * *` (daily 06:00 UTC) | `/api/cron/trigger-scraper` | Triggers Railway scraper |
+| `0 */2 * * *` (every 2 h) | `/api/cron/check-containers` | Triggers Railway container check |
+
+---
+
+## Data model
+
+### vessel_watches (key table)
+
 ```sql
--- Vollständige Migration: migrations/20260221_container_tracking.sql
+id                  UUID
+user_id             UUID → auth.users
+vessel_name         TEXT
+vessel_name_normalized TEXT
+shipment_reference  TEXT    -- comma-separated: "S00123456, S00789012"
+container_reference TEXT    -- comma-separated: "MSCU1234567, HLBU7654321"
+container_snr_pairs JSONB   -- [{"container_no":"MSCU1234567","snr":"S00123456"}]
+last_known_eta      TIMESTAMPTZ
+notification_enabled BOOLEAN -- gates EMAIL only, not status checking
+container_source    TEXT    -- 'HHLA' | 'EUROGATE' | 'AUTO'
+delivery_date       DATE    -- Anliefertermin from Excel
 ```
-Datei kopieren und im Supabase SQL-Editor ausführen. Idempotent (IF NOT EXISTS).
 
-#### 2. Node.js-Abhängigkeiten installieren
-
-```bash
-# Im Repo-Root (nicht in web/)
-npm install
-
-# Playwright-Browser herunterladen (einmalig)
-npx playwright install chromium
+### Container number format (ISO-6346)
+```
+/^[A-Z]{4}[0-9]{7}$/
 ```
 
-#### 3. ENV-Variablen konfigurieren
+### Shipment number format
+```
+S + 8 digits  →  e.g. S00123456
+```
 
-Zur `.env`-Datei (Root) hinzufügen:
+---
+
+## Environment variables
+
+### Railway / Node.js worker (`.env`)
 
 ```env
-# ── Supabase (shared mit Python-Scraper) ───────────────
-SUPABASE_URL=https://xxx.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJ...
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
 
-# ── E-Mail Provider ────────────────────────────────────
 EMAIL_PROVIDER=resend           # resend | ses | none
-EMAIL_FROM=Shipscoper <noreply@example.com>
-
-# Resend (Standard)
+EMAIL_FROM=Shipscoper <hello@shipscoper.com>
 RESEND_API_KEY=re_...
 
-# Amazon SES (optional, nur wenn EMAIL_PROVIDER=ses)
-SES_REGION=eu-central-1
-SES_ACCESS_KEY_ID=AKIA...
-SES_SECRET_ACCESS_KEY=...
+SMTP_SERVER=
+SMTP_PORT=
+EMAIL_ADDRESS=
+EMAIL_PASSWORD=
+IMAP_SERVER=
+IMAP_PORT=
 
-# ── Optionaler Make.com Webhook ────────────────────────
-MAKE_WEBHOOK_URL=https://hook.eu1.make.com/...
-
-# ── Provider URLs (optional, bei geänderten Portalen) ──
-HHLA_CONTAINER_URL=https://coast.hhla.de/containerauskunft
-EUROGATE_CONTAINER_URL=https://www.eurogate.eu/...  # Richtigen URL eintragen!
-
-# ── Job-Parameter ──────────────────────────────────────
-MAX_CONCURRENCY=2               # Gleichzeitige Browser-Pages (Standard: 2)
+WEBHOOK_SECRET=                 # Shared with Vercel
+MAX_CONCURRENCY=2
 ```
 
-#### 4. Container-Quelle in vessel_watches setzen (optional)
+### Vercel / Next.js (`web/.env.local`)
 
-```sql
--- Für alle Einträge, die ausschließlich bei HHLA sind:
-UPDATE vessel_watches SET container_source = 'HHLA'
-WHERE vessel_name_normalized IN ('...', '...');
+```env
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
 
--- Für Eurogate:
-UPDATE vessel_watches SET container_source = 'EUROGATE' WHERE ...;
+RAILWAY_SCRAPER_URL=https://your-app.up.railway.app
+WEBHOOK_SECRET=                 # Same as Railway
+CRON_SECRET=
 
--- NULL oder 'AUTO' = HHLA zuerst, dann Eurogate als Fallback
+RESEND_API_KEY=re_...
+EMAIL_FROM=Shipscoper <hello@shipscoper.com>
+
+MATCH_THRESHOLD=0.85
+MAX_FILE_MB=10
+TMP_TTL_MIN=30
 ```
 
-### Job ausführen
+---
+
+## Deployment
+
+### Railway (Python Scraper + Node.js Worker)
+
+> **Critical:** `LD_LIBRARY_PATH` must **not** be set as a Railway environment variable or in `nixpacks.toml [variables]`. It must only appear inline in the start command (already set in `nixpacks.toml`, `railway.json`, `Procfile`).
 
 ```bash
-# Einmalig / manuell
-npm run check-containers
-
-# Mit sichtbarem Browser (Debug)
-HEADLESS=false npm run check-containers
-
-# Als Cron auf Railway (neuer Service oder cron.json):
-# Befehl: npm run check-containers
-# Interval: alle 30 Minuten
+# nixpacks.toml start command (do not change):
+LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu python -m gunicorn scraper_api:app ...
 ```
 
-### Debug-Tipps
+Railway Flask API endpoints (all require `X-Webhook-Secret` header):
 
-| Problem | Lösung |
-|---|---|
-| HHLA: Accordion öffnet nicht | `HEADLESS=false` → Browser beobachten; ggf. Locator in `src/providers/hhla.ts` anpassen |
-| Eurogate: Container nicht gefunden | Richtigen `EUROGATE_CONTAINER_URL` in `.env` setzen (Portal-URL konfigurierbar) |
-| Keine E-Mail erhalten | `EMAIL_PROVIDER=none` → Logs prüfen; dann Resend Dashboard für Delivery-Status |
-| Duplicate-Key Error | Normal — DB-UNIQUE verhindert doppelte Notifications (idempotent) |
-| `@aws-sdk/client-ses not found` | Nur nötig wenn `EMAIL_PROVIDER=ses`: `npm install @aws-sdk/client-ses` |
-| Zu langsam | `MAX_CONCURRENCY=4` (Vorsicht: mehr RAM/CPU) |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check (no auth) |
+| POST | `/webhook/run-scraper` | Trigger full scrape (async, 202) |
+| POST | `/webhook/check-containers` | Trigger container check (async, 202) |
+| POST | `/webhook/test-email` | Send test email |
 
-### Rate Limits
+### Vercel (Next.js)
 
-- **HHLA (coast.hhla.de)**: Kein bekanntes hartes Limit. Bei >20 Containern Wartezeit einplanen.
-- **Eurogate**: Portal kann bei zu vielen Requests eine CAPTCHA-Seite zeigen. Max 2 concurrent empfohlen.
-- **Resend Free Tier**: 100 E-Mails/Tag, 3.000/Monat. Für mehr: kostenpflichtiger Plan.
+```bash
+cd web
+npm run build    # verify before deploying
+```
+
+Set all `web/.env.local` variables as Vercel Environment Variables.
+
+### Supabase migrations (fresh setup — run in order)
+
+```sql
+1. web/supabase_schema.sql
+2. web/supabase_auth_schema.sql
+3. web/supabase_watchlist_schema.sql
+4. migrations/20260221_container_tracking.sql
+5. migrations/20260223_container_snr_pairs.sql
+```
+
+All migrations are idempotent (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`).
+
+---
+
+## Local development
+
+```bash
+# Next.js dev
+cd web && npm run dev
+
+# Python scraper (full pipeline)
+python main.py run
+
+# Python scraper (just process an Excel locally)
+python main.py process --input myfile.xlsx
+
+# Node.js container check (runs once, exits)
+npm run check-containers
+
+# TypeScript type checks
+npm run typecheck
+cd web && npx tsc --noEmit
+
+# Unit tests (Node.js built-in runner)
+npm test
+```
+
+---
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| Eurogate session expired | Scraper restarts session automatically |
+| HHLA "No table found" | JavaScript not loaded — increase Playwright timeout in `config.yaml` |
+| Invite email not delivered | Check Resend dashboard; verify `RESEND_API_KEY` + `EMAIL_FROM` in Vercel env vars |
+| Containers not checked | Verify `last_known_eta` is within 7 days and `container_reference` is set |
+| Fuzzy match misses | Lower `MATCH_THRESHOLD` in Vercel env (default 0.85) |
+| `/tmp` file expired | Excel download link is valid for `TMP_TTL_MIN` minutes (default 30) — re-upload |
+| `LD_LIBRARY_PATH` build error | Remove it from Railway Variables — must only be in start command |
+| Resend free tier | 100 emails/day, 3,000/month — upgrade plan if needed |

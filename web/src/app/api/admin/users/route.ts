@@ -111,25 +111,66 @@ export async function POST(req: NextRequest) {
     const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
     const supabaseAdmin = getSupabaseAdmin();
 
-    // Invite user — Supabase sends a password-setup link to their email
-    const { data: inviteData, error: inviteError } =
-      await supabaseAdmin.auth.admin.inviteUserByEmail(email);
+    // Generate invite link without auto-sending (so we can send via Resend)
+    const { data: linkData, error: linkError } =
+      await supabaseAdmin.auth.admin.generateLink({
+        type: 'invite',
+        email,
+      });
 
-    if (inviteError) throw inviteError;
+    if (linkError) throw linkError;
 
     // Assign role (trigger may have already created a 'user' row)
     const { error: roleError } = await supabaseAdmin
       .from('user_roles')
       .upsert(
-        { user_id: inviteData.user.id, role, updated_at: new Date().toISOString() },
+        { user_id: linkData.user.id, role, updated_at: new Date().toISOString() },
         { onConflict: 'user_id' }
       );
 
     if (roleError) throw roleError;
 
+    // Send invite email via Resend from hello@shipscoper.com
+    const inviteUrl = linkData.properties.action_link;
+    const resendRes = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: process.env.EMAIL_FROM ?? 'Shipscoper <hello@shipscoper.com>',
+        to: email,
+        subject: 'Einladung zu Shipscoper',
+        html: `
+          <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;">
+            <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;">Du wurdest zu Shipscoper eingeladen</h2>
+            <p style="color:#6b7280;font-size:14px;margin-bottom:24px;">
+              Klicke auf den Button unten, um dein Passwort festzulegen und deinen Account zu aktivieren.
+            </p>
+            <a href="${inviteUrl}"
+               style="display:inline-block;background:#0f172a;color:#fff;font-size:14px;font-weight:600;
+                      padding:12px 24px;border-radius:8px;text-decoration:none;">
+              Passwort festlegen
+            </a>
+            <p style="color:#9ca3af;font-size:12px;margin-top:32px;">
+              Falls du diesen Link nicht angefordert hast, kannst du diese E-Mail ignorieren.<br/>
+              Der Link ist 24 Stunden gültig.
+            </p>
+          </div>
+        `,
+      }),
+    });
+
+    if (!resendRes.ok) {
+      const resendErr = await resendRes.text();
+      console.error('Resend error:', resendErr);
+      throw new Error('E-Mail konnte nicht gesendet werden');
+    }
+
     return NextResponse.json({
       success: true,
-      user: { id: inviteData.user.id, email: inviteData.user.email, role },
+      user: { id: linkData.user.id, email: linkData.user.email, role },
     });
   } catch (error) {
     console.error('Error creating user:', error);

@@ -31,9 +31,9 @@ CREATE TABLE IF NOT EXISTS status_check_runs (
   checked_ok        INTEGER   DEFAULT 0,
   checked_failed    INTEGER   DEFAULT 0,
   changed           INTEGER   DEFAULT 0,
-  ok_count          INTEGER   DEFAULT 0 GENERATED ALWAYS AS (checked_ok) STORED,
-  fail_count        INTEGER   DEFAULT 0 GENERATED ALWAYS AS (checked_failed) STORED,
-  skip_count        INTEGER   DEFAULT 0 GENERATED ALWAYS AS (shipments_skipped) STORED,
+  ok_count          INTEGER   GENERATED ALWAYS AS (checked_ok) STORED,
+  fail_count        INTEGER   GENERATED ALWAYS AS (checked_failed) STORED,
+  skip_count        INTEGER   GENERATED ALWAYS AS (shipments_skipped) STORED,
   summary_json    JSONB,
   log_text        TEXT
 );
@@ -65,13 +65,21 @@ CREATE INDEX IF NOT EXISTS idx_scri_run_id
 ALTER TABLE status_check_runs       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE status_check_run_items  ENABLE ROW LEVEL SECURITY;
 
--- Service role bypasses RLS for writes; authenticated users can read all runs
--- (runs are global to the installation, not per-user)
-CREATE POLICY IF NOT EXISTS "Authenticated users can read status runs"
-  ON status_check_runs FOR SELECT TO authenticated USING (true);
+-- NOTE: PostgreSQL does NOT support CREATE POLICY IF NOT EXISTS.
+-- Use DO $$ ... EXCEPTION WHEN duplicate_object THEN NULL; END $$; instead.
 
-CREATE POLICY IF NOT EXISTS "Authenticated users can read run items"
-  ON status_check_run_items FOR SELECT TO authenticated USING (true);
+-- Service role bypasses RLS for writes; authenticated users can read all runs
+DO $$ BEGIN
+  CREATE POLICY "Authenticated users can read status runs"
+    ON status_check_runs FOR SELECT TO authenticated USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Authenticated users can read run items"
+    ON status_check_run_items FOR SELECT TO authenticated USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ── 5. Cleanup: rebuild container_snr_pairs for existing watches ──
 -- For existing vessel_watches that have both shipment_reference and

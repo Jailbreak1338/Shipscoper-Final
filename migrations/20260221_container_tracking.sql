@@ -96,30 +96,42 @@ ALTER TABLE container_latest_status       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE container_status_events       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE container_status_notifications ENABLE ROW LEVEL SECURITY;
 
+-- NOTE: PostgreSQL does NOT support CREATE POLICY IF NOT EXISTS.
+-- Use DO $$ ... EXCEPTION WHEN duplicate_object THEN NULL; END $$; instead.
+
 -- Users can read their own container data (service role bypasses RLS for writes)
-CREATE POLICY "Users see own container status"
-  ON container_latest_status FOR SELECT
-  TO authenticated
-  USING (
-    watch_id IN (
-      SELECT id FROM vessel_watches WHERE user_id = auth.uid()
-    )
-  );
+DO $$ BEGIN
+  CREATE POLICY "Users see own container status"
+    ON container_latest_status FOR SELECT
+    TO authenticated
+    USING (
+      watch_id IN (
+        SELECT id FROM vessel_watches WHERE user_id = auth.uid()
+      )
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE POLICY "Users see own container events"
-  ON container_status_events FOR SELECT
-  TO authenticated
-  USING (
-    watch_id IN (
-      SELECT id FROM vessel_watches WHERE user_id = auth.uid()
-    )
-  );
+DO $$ BEGIN
+  CREATE POLICY "Users see own container events"
+    ON container_status_events FOR SELECT
+    TO authenticated
+    USING (
+      watch_id IN (
+        SELECT id FROM vessel_watches WHERE user_id = auth.uid()
+      )
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE POLICY "Users see own container notifications"
-  ON container_status_notifications FOR SELECT
-  TO authenticated
-  USING (
-    watch_id IN (
-      SELECT id FROM vessel_watches WHERE user_id = auth.uid()
-    )
-  );
+DO $$ BEGIN
+  CREATE POLICY "Users see own container notifications"
+    ON container_status_notifications FOR SELECT
+    TO authenticated
+    USING (
+      watch_id IN (
+        SELECT id FROM vessel_watches WHERE user_id = auth.uid()
+      )
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
