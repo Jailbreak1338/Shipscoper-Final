@@ -109,6 +109,7 @@ export async function GET() {
               if ((nextEta ?? null) !== (currentEta ?? null)) {
                 etaUpdates.push({ id: watch.id as string, eta: nextEta });
               }
+           
             }
           }
         }
