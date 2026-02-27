@@ -35,6 +35,7 @@ export async function GET() {
 
   let watches: Record<string, unknown>[] | null = null;
   let hasPairsColumn = true;
+  let hasShipperColumns = true;
 
   {
     const res = await supabase
@@ -54,6 +55,31 @@ export async function GET() {
         .order('created_at', { ascending: false });
       if (fallback.error) return NextResponse.json({ error: fallback.error.message }, { status: 500 });
       watches = (fallback.data ?? []) as Record<string, unknown>[];
+    } else if (res.error?.message?.includes('shipper_source') || res.error?.message?.includes('shipment_mode')) {
+      hasShipperColumns = false;
+      const legacyWithPairs = 'id, vessel_name, vessel_name_normalized, shipment_reference, container_reference, container_snr_pairs, container_source, notification_enabled';
+      const legacyWithoutPairs = 'id, vessel_name, vessel_name_normalized, shipment_reference, container_reference, container_source, notification_enabled';
+      const legacyRes = await supabase
+        .from('vessel_watches')
+        .select(legacyWithPairs)
+        .eq('user_id', session.user.id)
+        .not('shipment_reference', 'is', null)
+        .order('created_at', { ascending: false });
+      if (legacyRes.error?.message?.includes('container_snr_pairs')) {
+        hasPairsColumn = false;
+        const legacyFallback = await supabase
+          .from('vessel_watches')
+          .select(legacyWithoutPairs)
+          .eq('user_id', session.user.id)
+          .not('shipment_reference', 'is', null)
+          .order('created_at', { ascending: false });
+        if (legacyFallback.error) return NextResponse.json({ error: legacyFallback.error.message }, { status: 500 });
+        watches = (legacyFallback.data ?? []) as Record<string, unknown>[];
+      } else if (legacyRes.error) {
+        return NextResponse.json({ error: legacyRes.error.message }, { status: 500 });
+      } else {
+        watches = (legacyRes.data ?? []) as Record<string, unknown>[];
+      }
     } else if (res.error) {
       return NextResponse.json({ error: res.error.message }, { status: 500 });
     } else {
@@ -123,8 +149,8 @@ export async function GET() {
       vessel_name:          w.vessel_name,
       vessel_name_normalized: norm,
       container_source:     w.container_source,
-      shipper_source:       w.shipper_source,
-      shipment_mode:        w.shipment_mode ?? (parseContainerNos(w.container_reference as string | null).length > 0 ? 'FCL' : 'LCL'),
+      shipper_source:       hasShipperColumns ? (w.shipper_source as string | null) : null,
+      shipment_mode:        hasShipperColumns ? ((w.shipment_mode as string | null) ?? (parseContainerNos(w.container_reference as string | null).length > 0 ? 'FCL' : 'LCL')) : (parseContainerNos(w.container_reference as string | null).length > 0 ? 'FCL' : 'LCL'),
       notification_enabled: w.notification_enabled,
       eta,
       etd,
