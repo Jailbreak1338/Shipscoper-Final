@@ -3,6 +3,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import path from 'path';
 import { exec } from 'child_process';
+import { getValidatedScraperUrl, joinUrlPath } from '@/lib/security';
 
 /** POST /api/container-refresh — trigger container status check (Railway or local) */
 export async function POST() {
@@ -14,18 +15,22 @@ export async function POST() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const railwayUrl = process.env.RAILWAY_SCRAPER_URL?.replace(/\/$/, '');
+  const railwayUrl = getValidatedScraperUrl(process.env.RAILWAY_SCRAPER_URL);
   const secret = process.env.WEBHOOK_SECRET;
 
   // ── Railway path ──────────────────────────────────────────────────────────
   if (railwayUrl && secret) {
     try {
-      const res = await fetch(`${railwayUrl}/webhook/check-containers`, {
+      const endpoint = joinUrlPath(railwayUrl, '/webhook/check-containers');
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'X-Webhook-Secret': secret },
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
+        if (res.status === 404) {
+          return NextResponse.json({ error: 'Scraper endpoint not found (404). Check RAILWAY_SCRAPER_URL/webhook path.' }, { status: 502 });
+        }
         return NextResponse.json({ error: `Railway error ${res.status}: ${text}` }, { status: 502 });
       }
       return NextResponse.json({ ok: true, mode: 'railway' });
