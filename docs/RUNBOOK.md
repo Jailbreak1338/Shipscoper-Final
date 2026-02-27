@@ -171,3 +171,32 @@ Quick validation after deploy:
 - Open email link and confirm redirect to `/auth/callback` then `/set-password`.
 - Set password and confirm automatic redirect to `/eta-updater`.
 
+
+## 9. Watchlist schema check (`shipper_source` / `shipment_mode`)
+
+If SQL like
+
+```sql
+select
+  count(*) as total,
+  count(shipper_source) as with_shipper_source
+from vessel_watches;
+```
+
+fails with `column "shipper_source" does not exist`, the migration was not applied in that environment yet.
+
+Apply these migrations in Supabase SQL editor (or your migration runner), in order:
+
+1. `migrations/20260227_watchlist_shipper_mode.sql`
+2. `migrations/20260227_watchlist_shipper_mode_repair.sql` (safe/idempotent fallback)
+
+Quick verification:
+
+```sql
+select column_name
+from information_schema.columns
+where table_schema = 'public'
+  and table_name = 'vessel_watches'
+  and column_name in ('shipper_source', 'shipment_mode', 'container_source')
+order by column_name;
+```
