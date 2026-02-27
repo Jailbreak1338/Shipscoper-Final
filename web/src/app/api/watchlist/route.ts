@@ -99,13 +99,31 @@ export async function GET() {
         const etaMap = new Map(
           (schedules ?? []).map((s) => [s.name_normalized, s.eta as string | null])
         );
+        const etaUpdates: Array<{ id: string; eta: string | null }> = [];
         for (const watch of data ?? []) {
           if (watch.vessel_name_normalized && etaMap.has(watch.vessel_name_normalized)) {
             const nextEta = etaMap.get(watch.vessel_name_normalized) ?? null;
+<<<<<<< xa2t61-codex/conduct-environment-analysis-before-changes
+            const currentEta = watch.last_known_eta as string | null;
+            if (shouldApplyEtaUpdate(currentEta, nextEta)) {
+              watch.last_known_eta = nextEta ?? watch.last_known_eta;
+              if ((nextEta ?? null) !== (currentEta ?? null)) {
+                etaUpdates.push({ id: watch.id as string, eta: nextEta });
+              }
+=======
             if (shouldApplyEtaUpdate(watch.last_known_eta as string | null, nextEta)) {
               watch.last_known_eta = nextEta ?? watch.last_known_eta;
+>>>>>>> codex
             }
           }
+        }
+
+        for (const upd of etaUpdates) {
+          await supabase
+            .from('vessel_watches')
+            .update({ last_known_eta: upd.eta })
+            .eq('id', upd.id)
+            .eq('user_id', session.user.id);
         }
       }
     } catch {
