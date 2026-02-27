@@ -1,6 +1,6 @@
 # Shipscoper
 
-Vessel ETA tracking and container status notifications for the Hamburg terminals **HHLA** and **Eurogate*
+Vessel ETA tracking and container status notifications for the Hamburg terminals **HHLA** and **Eurogate
 
 ---
 
