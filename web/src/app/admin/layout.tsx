@@ -13,10 +13,10 @@ export default async function AdminLayout({
   const supabase = createServerComponentClient({ cookies });
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  if (!session) {
+  if (!user) {
     redirect('/login');
   }
 
@@ -30,7 +30,7 @@ export default async function AdminLayout({
   const { data: roleData } = await adminClient
     .from('user_roles')
     .select('role')
-    .eq('user_id', session.user.id)
+    .eq('user_id', user.id)
     .single();
 
   if (roleData?.role !== 'admin') {
