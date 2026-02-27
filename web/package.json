@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/check-conflict-markers.mjs && next build",
     "start": "next start",
     "generate-sample": "npx tsx scripts/generate_sample_excel.ts"
   },
