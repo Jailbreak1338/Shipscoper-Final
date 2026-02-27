@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { revalidatePath } from 'next/cache';
-import { getValidatedScraperUrl } from '@/lib/security';
+import { getValidatedScraperUrl, joinUrlPath } from '@/lib/security';
 
 async function isAdmin(userId: string): Promise<boolean> {
   // Use service-role client to bypass RLS for the role check
@@ -64,13 +64,18 @@ export async function POST() {
       throw new Error('Scraper not configured');
     }
 
-    const response = await fetch(`${scraperUrl}/webhook/run-scraper`, {
+    const response = await fetch(joinUrlPath(scraperUrl, '/webhook/run-scraper'), {
       method: 'POST',
       headers: { 'X-Webhook-Secret': webhookSecret },
     });
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
+      const requestId = response.headers.get('x-request-id');
+      console.error('Scraper API non-OK response', { status: response.status, body, requestId, endpoint: joinUrlPath(scraperUrl, '/webhook/run-scraper') });
+      if (response.status === 404) {
+        throw new Error('Scraper endpoint not found (404)');
+      }
       throw new Error(`Scraper API returned ${response.status}`);
     }
 
@@ -82,7 +87,7 @@ export async function POST() {
     while (attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5s between polls
 
-      const statusResponse = await fetch(`${scraperUrl}/status`, {
+      const statusResponse = await fetch(joinUrlPath(scraperUrl, '/status'), {
         method: 'GET',
         headers: { 'X-Webhook-Secret': webhookSecret },
       });
@@ -178,9 +183,10 @@ export async function POST() {
     revalidatePath('/dashboard');
     revalidatePath('/admin');
 
+    const is404 = message.includes('404');
     return NextResponse.json(
-      { success: false, error: 'Scraper run failed', run_id: runLog.id },
-      { status: 500 }
+      { success: false, error: is404 ? 'Scraper endpoint not found (404). Please verify RAILWAY_SCRAPER_URL and webhook path.' : 'Scraper run failed', run_id: runLog.id },
+      { status: is404 ? 502 : 500 }
     );
   }
 }
@@ -221,7 +227,7 @@ export async function GET() {
       const scraperUrl = getValidatedScraperUrl(process.env.RAILWAY_SCRAPER_URL);
       const webhookSecret = process.env.WEBHOOK_SECRET;
       if (scraperUrl && webhookSecret) {
-        const statusResponse = await fetch(`${scraperUrl}/status`, {
+        const statusResponse = await fetch(joinUrlPath(scraperUrl, '/status'), {
           method: 'GET',
           cache: 'no-store',
           headers: { 'X-Webhook-Secret': webhookSecret },
