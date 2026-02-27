@@ -8,7 +8,6 @@ import {
   Bell,
   BellOff,
   Search,
-  Mail,
   Loader2,
   AlertCircle,
   Ship,
@@ -81,8 +80,6 @@ export default function WatchlistPage() {
   const [error, setError] = useState('');
   const [vesselName, setVesselName] = useState('');
   const [adding, setAdding] = useState(false);
-  const [sendingTestEmail, setSendingTestEmail] = useState(false);
-  const [testEmailMessage, setTestEmailMessage] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState('');
   const [watchSearch, setWatchSearch] = useState('');
@@ -197,41 +194,6 @@ export default function WatchlistPage() {
     }
   };
 
-  const handleSendTestEmail = async () => {
-    setSendingTestEmail(true);
-    setTestEmailMessage('');
-    setError('');
-    try {
-      const res = await fetch('/api/watchlist/test-email', { method: 'POST' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Test email failed');
-      const target = typeof json.email === 'string' ? json.email : 'deine hinterlegte E-Mail';
-      setTestEmailMessage(`Test-E-Mail wird gesendet an ${target}`);
-      const jobId = typeof json.jobId === 'string' ? json.jobId : null;
-      if (jobId) {
-        setTimeout(async () => {
-          try {
-            const statusRes = await fetch(`/api/watchlist/test-email-status?jobId=${encodeURIComponent(jobId)}`);
-            const statusJson = await statusRes.json();
-            if (statusJson.status === 'sent') {
-              setTestEmailMessage(`E-Mail erfolgreich gesendet an ${target}.`);
-              setTimeout(() => setTestEmailMessage(''), 8000);
-            } else if (statusJson.status === 'failed') {
-              setError(`Test-E-Mail fehlgeschlagen: ${statusJson.error ?? 'SMTP-Fehler'}`);
-              setTestEmailMessage('');
-            }
-          } catch { /* ignore */ }
-        }, 5000);
-      } else {
-        setTimeout(() => setTestEmailMessage(''), 8000);
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Test email failed');
-    } finally {
-      setSendingTestEmail(false);
-    }
-  };
-
   const handleRefreshStatus = async () => {
     setRefreshing(true);
     setRefreshMessage('');
@@ -282,19 +244,6 @@ export default function WatchlistPage() {
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             Status abrufen
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSendTestEmail}
-            disabled={sendingTestEmail}
-          >
-            {sendingTestEmail ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Mail className="h-4 w-4" />
-            )}
-            Test-E-Mail
-          </Button>
         </div>
       </div>
 
@@ -305,12 +254,6 @@ export default function WatchlistPage() {
         </Alert>
       )}
 
-      {testEmailMessage && (
-        <Alert variant="success">
-          <Mail className="h-4 w-4" />
-          <AlertDescription>{testEmailMessage}</AlertDescription>
-        </Alert>
-      )}
 
       {error && (
         <Alert variant="destructive">
