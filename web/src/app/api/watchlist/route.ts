@@ -12,6 +12,74 @@ function parseShipmentRefs(input: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+
+
+function buildShipmentSourceLines(rows: Array<{ shipment_reference: string | null; shipper_source?: string | null; container_source?: string | null }>): Array<{ shipmentReference: string; source: string | null }> {
+  const out: Array<{ shipmentReference: string; source: string | null }> = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const source = String(row.shipper_source ?? row.container_source ?? '').trim() || null;
+    for (const ref of parseShipmentRefs(row.shipment_reference)) {
+      const key = `${ref}::${source ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ shipmentReference: ref, source });
+    }
+  }
+  return out;
+}
+
+async function loadShipmentSourceLines(
+  supabase: ReturnType<typeof createRouteHandlerClient>,
+  userId: string,
+  normalizedVessel: string
+): Promise<Array<{ shipmentReference: string; source: string | null }>> {
+  const withSource = await supabase
+    .from('vessel_watches')
+    .select('shipment_reference, shipper_source, container_source')
+    .eq('user_id', userId)
+    .eq('vessel_name_normalized', normalizedVessel);
+
+  if (withSource.error?.message?.includes('shipper_source')) {
+    const fallback = await supabase
+      .from('vessel_watches')
+      .select('shipment_reference, container_source')
+      .eq('user_id', userId)
+      .eq('vessel_name_normalized', normalizedVessel);
+    if (fallback.error) return [];
+    return buildShipmentSourceLines((fallback.data ?? []) as Array<{ shipment_reference: string | null; container_source?: string | null }>);
+  }
+
+  if (withSource.error) return [];
+  return buildShipmentSourceLines((withSource.data ?? []) as Array<{ shipment_reference: string | null; shipper_source?: string | null; container_source?: string | null }>);
+}
+
+function normalizeOptionalText(input: unknown): string | null {
+  const value = String(input ?? '').trim();
+  return value || null;
+}
+
+function normalizeContainerSource(input: unknown): 'HHLA' | 'EUROGATE' | 'AUTO' | null {
+  const value = String(input ?? '').trim().toUpperCase();
+  if (!value) return null;
+  if (value === 'HHLA' || value === 'EUROGATE' || value === 'AUTO') return value;
+  return null;
+}
+
+function normalizeShipmentMode(input: unknown): 'LCL' | 'FCL' {
+  return String(input ?? '').trim().toUpperCase() === 'FCL' ? 'FCL' : 'LCL';
+}
+
+function shouldApplyEtaUpdate(currentEta: string | null, latestEta: string | null): boolean {
+  if (!latestEta) return false;
+  if (!currentEta) return true;
+  const currentTs = Date.parse(currentEta);
+  const latestTs = Date.parse(latestEta);
+  if (Number.isNaN(currentTs) || Number.isNaN(latestTs)) return true;
+  const dayDiff = Math.abs(latestTs - currentTs) / 86_400_000;
+  return dayDiff <= 31;
+}
+
 async function isShipmentRefAlreadyAssigned(
   supabase: ReturnType<typeof createRouteHandlerClient>,
   userId: string,
@@ -72,10 +140,26 @@ export async function GET() {
         const etaMap = new Map(
           (schedules ?? []).map((s) => [s.name_normalized, s.eta as string | null])
         );
+        const etaUpdates: Array<{ id: string; eta: string | null }> = [];
         for (const watch of data ?? []) {
           if (watch.vessel_name_normalized && etaMap.has(watch.vessel_name_normalized)) {
-            watch.last_known_eta = etaMap.get(watch.vessel_name_normalized) ?? watch.last_known_eta;
+            const nextEta = etaMap.get(watch.vessel_name_normalized) ?? null;
+            const currentEta = watch.last_known_eta as string | null;
+            if (shouldApplyEtaUpdate(currentEta, nextEta)) {
+              watch.last_known_eta = nextEta ?? watch.last_known_eta;
+              if ((nextEta ?? null) !== (currentEta ?? null)) {
+                etaUpdates.push({ id: watch.id as string, eta: nextEta });
+              }
+            }
           }
+        }
+
+        for (const upd of etaUpdates) {
+          await supabase
+            .from('vessel_watches')
+            .update({ last_known_eta: upd.eta })
+            .eq('id', upd.id)
+            .eq('user_id', session.user.id);
         }
       }
     } catch {
@@ -122,10 +206,28 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const vesselName = (body.vesselName ?? '').trim();
   const shipmentReference = (body.shipmentReference ?? '').trim() || null;
+  const containerSource = normalizeContainerSource(body.containerSource);
+  const shipmentMode = normalizeShipmentMode(body.shipmentMode);
+  const shipperSource = normalizeOptionalText(body.shipperSource);
+  const containerReference = normalizeOptionalText(body.containerReference);
 
   if (!vesselName) {
     return NextResponse.json(
       { error: 'Vessel name is required' },
+      { status: 400 }
+    );
+  }
+
+  if (!shipmentReference) {
+    return NextResponse.json(
+      { error: 'S-Nr. ist erforderlich' },
+      { status: 400 }
+    );
+  }
+
+  if (body.containerSource && !containerSource) {
+    return NextResponse.json(
+      { error: 'Ungültige Source. Erlaubt: HHLA, EUROGATE, AUTO' },
       { status: 400 }
     );
   }
@@ -161,13 +263,35 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const { data, error } = await supabase.from('vessel_watches').insert({
+  const insertPayloadBase = {
     user_id: session.user.id,
     vessel_name: vesselName,
     vessel_name_normalized: normalized,
     shipment_reference: shipmentReference,
+    container_source: containerSource,
+    container_reference: containerReference,
     last_known_eta: currentEta,
-  }).select().single();
+  };
+
+  let data: Record<string, unknown> | null = null;
+  let error: { code?: string; message?: string } | null = null;
+
+  {
+    const withNewCols = await supabase.from('vessel_watches').insert({
+      ...insertPayloadBase,
+      shipment_mode: shipmentMode,
+      shipper_source: shipperSource,
+    }).select().single();
+
+    if (withNewCols.error?.message?.includes('shipper_source') || withNewCols.error?.message?.includes('shipment_mode')) {
+      const fallback = await supabase.from('vessel_watches').insert(insertPayloadBase).select().single();
+      data = (fallback.data as Record<string, unknown> | null) ?? null;
+      error = fallback.error as { code?: string; message?: string } | null;
+    } else {
+      data = (withNewCols.data as Record<string, unknown> | null) ?? null;
+      error = withNewCols.error as { code?: string; message?: string } | null;
+    }
+  }
 
   if (error) {
     if (error.code === '23505') {
@@ -203,42 +327,86 @@ export async function POST(request: NextRequest) {
             { status: 409 }
           );
         }
+      }
 
-        const merged = Array.from(
-          new Set(
-            parseShipmentRefs(existing.shipment_reference).concat(shipmentReference)
-          )
-        ).join(', ');
+      const merged = Array.from(
+        new Set(
+          parseShipmentRefs(existing.shipment_reference).concat(shipmentReference ?? [])
+        )
+      ).join(', ');
 
-        if (merged !== (existing.shipment_reference || '')) {
-          const { data: updated, error: updateErr } = await supabase
+      const desiredMode = shipmentMode;
+      const desiredShipper = shipperSource;
+      const desiredContainerSource = containerSource;
+      const desiredContainerReference = containerReference ?? existing.container_reference ?? null;
+
+      const metadataChanged =
+        (existing.shipment_mode ?? null) !== desiredMode ||
+        (existing.shipper_source ?? null) !== desiredShipper ||
+        (existing.container_source ?? null) !== desiredContainerSource ||
+        (existing.container_reference ?? null) !== desiredContainerReference ||
+        (existing.shipment_reference || '') !== merged;
+
+      if (metadataChanged) {
+        let updated: Record<string, unknown> | null = null;
+        let updateErr: { message?: string } | null = null;
+
+        {
+          const withNewCols = await supabase
             .from('vessel_watches')
-            .update({ shipment_reference: merged })
+            .update({
+              shipment_reference: merged,
+              shipment_mode: desiredMode,
+              shipper_source: desiredShipper,
+              container_source: desiredContainerSource,
+              container_reference: desiredContainerReference,
+            })
             .eq('id', existing.id)
             .select()
             .single();
 
-          if (updateErr) {
-            console.error('Failed to update shipment reference on existing watch:', updateErr);
-            return NextResponse.json({ error: updateErr.message }, { status: 500 });
+          if (withNewCols.error?.message?.includes('shipper_source') || withNewCols.error?.message?.includes('shipment_mode')) {
+            const fallback = await supabase
+              .from('vessel_watches')
+              .update({
+                shipment_reference: merged,
+                container_source: desiredContainerSource,
+                container_reference: desiredContainerReference,
+              })
+              .eq('id', existing.id)
+              .select()
+              .single();
+            updated = (fallback.data as Record<string, unknown> | null) ?? null;
+            updateErr = fallback.error as { message?: string } | null;
+          } else {
+            updated = (withNewCols.data as Record<string, unknown> | null) ?? null;
+            updateErr = withNewCols.error as { message?: string } | null;
           }
-
-          // Email: watch updated with new S-Nr.
-          if (session.user.email) {
-            sendResendEmail({
-              to: session.user.email,
-              subject: `Watch aktualisiert: ${vesselName}`,
-              html: buildWatchlistEmail({
-                vesselName,
-                shipmentReference: shipmentReference,
-                eta: currentEta,
-                isUpdate: true,
-              }),
-            }).catch((e) => console.error('[watchlist] email error:', e));
-          }
-
-          return NextResponse.json({ watch: updated, updatedExisting: true }, { status: 200 });
         }
+
+        if (updateErr) {
+          console.error('Failed to update shipment reference on existing watch:', updateErr);
+          return NextResponse.json({ error: updateErr.message }, { status: 500 });
+        }
+
+        if (session.user.email) {
+          const shipmentSourceLines = await loadShipmentSourceLines(supabase, session.user.id, normalized);
+          sendResendEmail({
+            to: session.user.email,
+            subject: `Watch aktualisiert: ${vesselName}`,
+            html: buildWatchlistEmail({
+              vesselName,
+              shipmentReference: shipmentReference,
+              eta: currentEta,
+              isUpdate: true,
+              source: shipperSource ?? containerSource,
+              mode: shipmentMode,
+              shipmentSourceLines,
+            }),
+          }).catch((e) => console.error('[watchlist] email error:', e));
+        }
+
+        return NextResponse.json({ watch: updated, updatedExisting: true }, { status: 200 });
       }
 
       return NextResponse.json({ watch: existing, updatedExisting: false }, { status: 200 });
@@ -249,6 +417,7 @@ export async function POST(request: NextRequest) {
 
   // Email: new watch created
   if (session.user.email) {
+    const shipmentSourceLines = await loadShipmentSourceLines(supabase, session.user.id, normalized);
     sendResendEmail({
       to: session.user.email,
       subject: `Watch aktiviert: ${vesselName}`,
@@ -257,9 +426,46 @@ export async function POST(request: NextRequest) {
         shipmentReference,
         eta: currentEta,
         isUpdate: false,
+        source: shipperSource ?? containerSource,
+        mode: shipmentMode,
+        shipmentSourceLines,
       }),
     }).catch((e) => console.error('[watchlist] email error:', e));
   }
 
   return NextResponse.json({ watch: data }, { status: 201 });
+}
+
+
+/** DELETE /api/watchlist — bulk remove vessels from watchlist */
+export async function DELETE(request: NextRequest) {
+  const supabase = createRouteHandlerClient({ cookies });
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const body = await request.json().catch(() => ({}));
+  const ids = Array.isArray(body.ids)
+    ? body.ids.map((id: unknown) => String(id).trim()).filter(Boolean)
+    : [];
+
+  if (ids.length === 0) {
+    return NextResponse.json({ error: 'Keine IDs angegeben' }, { status: 400 });
+  }
+
+  const { error } = await supabase
+    .from('vessel_watches')
+    .delete()
+    .eq('user_id', session.user.id)
+    .in('id', ids);
+
+  if (error) {
+    console.error('Failed to bulk delete watches:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ success: true, deleted: ids.length });
 }

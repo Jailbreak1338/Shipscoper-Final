@@ -82,16 +82,16 @@ export async function middleware(req: NextRequest) {
 
   // Get session
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const path = req.nextUrl.pathname;
 
   // Public paths (always allow)
-  const publicPaths = ['/login', '/_next', '/favicon.ico', '/api/health'];
+  const publicPaths = ['/login', '/auth/callback', '/set-password', '/_next', '/favicon.ico', '/api/health'];
   if (publicPaths.some((p) => path.startsWith(p))) {
     // If logged in and visiting /login, redirect to app
-    if (path.startsWith('/login') && session) {
+    if (path.startsWith('/login') && user) {
       return NextResponse.redirect(new URL('/eta-updater', req.url));
     }
     return res;
@@ -114,14 +114,14 @@ export async function middleware(req: NextRequest) {
   ];
   const isProtected = protectedPaths.some((p) => path.startsWith(p));
 
-  if (isProtected && !session) {
+  if (isProtected && !user) {
     const loginUrl = new URL('/login', req.url);
     return NextResponse.redirect(loginUrl);
   }
 
   // Admin-only paths
   if (path.startsWith('/admin') || path.startsWith('/api/admin')) {
-    if (!session) {
+    if (!user) {
       return NextResponse.redirect(new URL('/login', req.url));
     }
 
@@ -136,7 +136,7 @@ export async function middleware(req: NextRequest) {
     const { data: roleData } = await adminClient
       .from('user_roles')
       .select('role')
-      .eq('user_id', session.user.id)
+      .eq('user_id', user.id)
       .single();
 
     if (roleData?.role !== 'admin') {
