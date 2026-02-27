@@ -39,10 +39,12 @@ export default function ScheduleSearchTable({
   initialShipmentByVessel,
   initialContainerByVessel,
   initialSnrFilter,
+  initialListSourceByVessel,
 }: {
   rows: SearchRow[];
   initialShipmentByVessel: ShipmentMap;
   initialContainerByVessel: ShipmentMap;
+  initialListSourceByVessel: Record<string, string[]>;
   initialSnrFilter?: string;
 }) {
   const router = useRouter();
@@ -50,6 +52,8 @@ export default function ScheduleSearchTable({
   const [shipmentByVessel] = useState<ShipmentMap>(initialShipmentByVessel);
   const [containerByVessel] = useState<ShipmentMap>(initialContainerByVessel);
   const [snrFilter, setSnrFilter] = useState(initialSnrFilter ?? '');
+  const [listSourceByVessel] = useState<Record<string, string[]>>(initialListSourceByVessel);
+  const [listSourceFilter, setListSourceFilter] = useState('');
   const [onlyUnassigned, setOnlyUnassigned] = useState(false);
   const [onlyWithSnr, setOnlyWithSnr] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,10 +84,17 @@ export default function ScheduleSearchTable({
       const vesselShipments = shipmentByVessel[row.vessel_name_normalized] ?? [];
       if (onlyUnassigned && vesselShipments.length > 0) return false;
       if (onlyWithSnr && vesselShipments.length === 0) return false;
+      const listSources = listSourceByVessel[row.vessel_name_normalized] ?? ['UNSET'];
+      if (listSourceFilter && !listSources.includes(listSourceFilter)) return false;
       if (!q) return true;
       return vesselShipments.some((snr) => snr.toLowerCase().includes(q));
     });
-  }, [rows, shipmentByVessel, snrFilter, onlyUnassigned, onlyWithSnr]);
+  }, [rows, shipmentByVessel, snrFilter, onlyUnassigned, onlyWithSnr, listSourceByVessel, listSourceFilter]);
+
+  const listSourceOptions = useMemo(() => {
+    const flattened = Object.values(listSourceByVessel).flatMap((arr) => arr.length > 0 ? arr : ['UNSET']);
+    return [...new Set(flattened.concat('UNSET'))].sort();
+  }, [listSourceByVessel]);
 
   return (
     <div className="space-y-3">
@@ -103,6 +114,15 @@ export default function ScheduleSearchTable({
               className="pl-8 h-8 text-sm w-44"
             />
           </div>
+          <select
+            aria-label="Listen-Source"
+            value={listSourceFilter}
+            onChange={(e) => setListSourceFilter(e.target.value)}
+            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+          >
+            <option value="">Alle Listen-Sources</option>
+            {listSourceOptions.map((src) => <option key={src} value={src}>{src === 'UNSET' ? '—' : src}</option>)}
+          </select>
           <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
             <input
               type="checkbox"
@@ -139,12 +159,13 @@ export default function ScheduleSearchTable({
               <TableHead className="text-xs uppercase tracking-wide">Abgerufen</TableHead>
               <TableHead className="text-xs uppercase tracking-wide">S-Nr.</TableHead>
               <TableHead className="text-xs uppercase tracking-wide">Container</TableHead>
+              <TableHead className="text-xs uppercase tracking-wide">Listen-Source</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} className="text-center py-10 text-muted-foreground text-sm">
+                <TableCell colSpan={11} className="text-center py-10 text-muted-foreground text-sm">
                   Keine Daten gefunden
                 </TableCell>
               </TableRow>
@@ -212,6 +233,17 @@ export default function ScheduleSearchTable({
                         </div>
                       ) : (
                         <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {(listSourceByVessel[key] ?? []).length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {(listSourceByVessel[key] ?? []).map((src) => (
+                            <Badge key={src} variant="outline" className="text-xs">{src}</Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <Badge variant="outline" className="text-xs">—</Badge>
                       )}
                     </TableCell>
                   </TableRow>

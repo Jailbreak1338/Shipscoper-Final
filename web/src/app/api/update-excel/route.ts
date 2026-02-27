@@ -44,6 +44,7 @@ async function autoAssignShipmentsFromUpload(params: {
   shipmentCol: string;
   containerCol?: string;
   deliveryDateCol?: string;
+  listName?: string;
 }): Promise<{ updatedCount: number; skippedConflicts: number }> {
   const workbook = XLSX.read(params.fileBuffer, { type: 'buffer', cellDates: true });
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -148,6 +149,8 @@ async function autoAssignShipmentsFromUpload(params: {
     container_snr_pairs: Array<{ container_no: string; snr: string | null; delivery_date?: string | null }> | null;
     last_known_eta: string | null;
     notification_enabled: boolean;
+    shipper_source?: string | null;
+    shipment_mode?: 'LCL' | 'FCL';
   }> = [];
 
   for (const [normalized, payload] of assignmentByVessel.entries()) {
@@ -175,6 +178,8 @@ async function autoAssignShipmentsFromUpload(params: {
         container_snr_pairs: payload.pairs.length > 0 ? payload.pairs : null,
         last_known_eta: null, // filled in batch below
         notification_enabled: false,
+        shipper_source: params.listName ?? null,
+        shipment_mode: containerRef ? 'FCL' : 'LCL',
       });
       continue;
     }
@@ -195,13 +200,15 @@ async function autoAssignShipmentsFromUpload(params: {
     if (refsChanged) updatePayload.shipment_reference = Array.from(mergedRefs).join(', ');
     if (containersChanged) updatePayload.container_reference = Array.from(mergedContainers).join(', ');
     if (pairsChanged) updatePayload.container_snr_pairs = payload.pairs;
+    if (params.listName) updatePayload.shipper_source = params.listName;
+    updatePayload.shipment_mode = mergedContainers.size > 0 ? 'FCL' : 'LCL';
 
     let { error: updateError } = await admin
       .from('vessel_watches').update(updatePayload).eq('id', existing.id);
 
     // If container_snr_pairs column doesn't exist yet, retry without it
-    if (updateError?.message?.includes('container_snr_pairs')) {
-      const { container_snr_pairs: _p, ...payloadWithoutPairs } = updatePayload;
+    if (updateError?.message?.includes('container_snr_pairs') || updateError?.message?.includes('shipper_source') || updateError?.message?.includes('shipment_mode')) {
+      const { container_snr_pairs: _p, shipper_source: _s, shipment_mode: _m, ...payloadWithoutPairs } = updatePayload as Record<string, unknown>;
       const retry = await admin.from('vessel_watches').update(payloadWithoutPairs).eq('id', existing.id);
       updateError = retry.error;
     }
@@ -228,8 +235,8 @@ async function autoAssignShipmentsFromUpload(params: {
     let { error: insertError } = await admin.from('vessel_watches').insert(inserts);
 
     // If container_snr_pairs column doesn't exist yet, retry without it
-    if (insertError?.message?.includes('container_snr_pairs')) {
-      const insertsWithoutPairs = inserts.map(({ container_snr_pairs: _p, ...rest }) => rest);
+    if (insertError?.message?.includes('container_snr_pairs') || insertError?.message?.includes('shipper_source') || insertError?.message?.includes('shipment_mode')) {
+      const insertsWithoutPairs = inserts.map(({ container_snr_pairs: _p, shipper_source: _s, shipment_mode: _m, ...rest }) => rest);
       const retry = await admin.from('vessel_watches').insert(insertsWithoutPairs);
       insertError = retry.error;
     }
@@ -454,6 +461,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     let autoAssignedCount = 0;
     let autoAssignSkippedConflicts = 0;
     if (shipmentCol) {
+      const listName = file.name.replace(/\.[^.]+$/, '').trim() || null;
       const assignResult = await autoAssignShipmentsFromUpload({
         userId: session.user.id,
         fileBuffer,
@@ -461,6 +469,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         shipmentCol,
         containerCol,
         deliveryDateCol,
+        listName: listName ?? undefined,
       });
       autoAssignedCount = assignResult.updatedCount;
       autoAssignSkippedConflicts = assignResult.skippedConflicts;
