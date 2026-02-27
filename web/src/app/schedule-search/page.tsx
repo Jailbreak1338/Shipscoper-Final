@@ -227,10 +227,13 @@ export default async function ScheduleSearchPage({ searchParams }: { searchParam
   if (snr) baseParams.snr = snr;
   if (pageSize !== 25) baseParams.pageSize = String(pageSize);
 
-  const listSourceByVessel = watchedRows.reduce<Record<string, string>>((acc, row) => {
+  const listSourceByVessel = watchedRows.reduce<Record<string, string[]>>((acc, row) => {
     const src = (row.shipper_source ?? row.container_source ?? '').trim();
     if (!src) return acc;
-    if (!acc[row.vessel_name_normalized]) acc[row.vessel_name_normalized] = src;
+    const key = row.vessel_name_normalized;
+    const existing = acc[key] ?? [];
+    if (!existing.includes(src)) existing.push(src);
+    acc[key] = existing;
     return acc;
   }, {});
   const buildByVessel = (rows: typeof watchedRows, field: 'shipment_reference' | 'container_reference'): Record<string, string[]> =>
