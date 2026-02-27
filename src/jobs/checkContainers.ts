@@ -153,13 +153,13 @@ async function loadActiveWatches(): Promise<ActiveWatch[]> {
 
   if (error) throw new Error(`loadActiveWatches: ${error.message}`);
 
-  // Only check containers for vessels arriving within the next 7 days (or already arrived / no ETA known)
-  const cutoff = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  // Only check containers for vessels arriving within the next 2 days (or already arrived / no ETA known)
+  const cutoff = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
   const all = (data ?? []) as ActiveWatch[];
   const filtered = all.filter((w) => !w.last_known_eta || w.last_known_eta <= cutoff);
   const skippedCount = all.length - filtered.length;
   if (skippedCount > 0) {
-    log(`Skipped ${skippedCount} watch(es) — ETA more than 7 days away`, { skipped_far_eta: skippedCount });
+    log(`Skipped ${skippedCount} watch(es) — ETA more than 2 days away`, { skipped_far_eta: skippedCount });
   }
   return filtered;
 }

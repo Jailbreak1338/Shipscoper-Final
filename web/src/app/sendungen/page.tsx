@@ -36,6 +36,8 @@ interface ContainerRow {
   vessel_name: string;
   shipment_reference: string | null;
   container_source: string | null;
+  shipper_source: string | null;
+  shipment_mode: 'LCL' | 'FCL' | null;
   has_container: boolean;
   eta: string | null;
   etd: string | null;
@@ -162,16 +164,19 @@ export default function SendungenPage() {
   const [cVessel,   setCVessel]   = useState('');
   const [cTerminal, setCTerminal] = useState('');
   const [cStatus,   setCStatus]   = useState('');
+  const [cSource,   setCSource]   = useState('');
 
   const [sSnr,      setSSnr]      = useState('');
   const [sVessel,   setSVessel]   = useState('');
   const [sTerminal, setSTerminal] = useState('');
+  const [sSource,   setSSource]   = useState('');
 
   const [cNext7, setCNext7] = useState(false);
   const [sNext7, setSNext7] = useState(false);
 
   const [oSnr,    setOSnr]    = useState('');
   const [oVessel, setOVessel] = useState('');
+  const [oSource, setOSource] = useState('');
 
   const loadData = useCallback((silent = false) => {
     if (!silent) setLoading(true);
@@ -204,7 +209,9 @@ export default function SendungenPage() {
   const containerTerminals = useMemo(() => [...new Set(containerRows.map((r) => r.terminal ?? r.vessel_terminal ?? '').filter(Boolean))].sort(), [containerRows]);
   const stueckgutVessels  = useMemo(() => [...new Set(stueckgutRows.map((r) => r.vessel_name))].sort(), [stueckgutRows]);
   const stueckgutTerminals = useMemo(() => [...new Set(stueckgutRows.map((r) => r.vessel_terminal ?? '').filter(Boolean))].sort(), [stueckgutRows]);
-
+  const listSource = (row: ContainerRow) => (row.shipper_source ?? row.container_source ?? '').trim() || 'UNSET';
+  const containerSources = useMemo(() => [...new Set(containerRows.map((r) => listSource(r)))].sort(), [containerRows]);
+  const stueckgutSources = useMemo(() => [...new Set(stueckgutRows.map((r) => listSource(r)))].sort(), [stueckgutRows]);
   const filteredContainer = useMemo(() => {
     const snr = cSnr.trim().toLowerCase();
     const cnt = cContainer.trim().toLowerCase();
@@ -214,11 +221,12 @@ export default function SendungenPage() {
       if (cVessel   && r.vessel_name !== cVessel) return false;
       if (cTerminal && (r.terminal ?? r.vessel_terminal) !== cTerminal) return false;
       if (cStatus   && r.normalized_status !== cStatus) return false;
+      if (cSource   && listSource(r) !== cSource) return false;
       if (cNext7    && !isWithin7Days(r.eta)) return false;
       return true;
     });
     return sortByEta(result);
-  }, [containerRows, cSnr, cContainer, cVessel, cTerminal, cStatus, cNext7]);
+  }, [containerRows, cSnr, cContainer, cVessel, cTerminal, cStatus, cSource, cNext7]);
 
   const filteredStueckgut = useMemo(() => {
     const snr = sSnr.trim().toLowerCase();
@@ -226,23 +234,26 @@ export default function SendungenPage() {
       if (snr     && !(r.shipment_reference ?? '').toLowerCase().includes(snr)) return false;
       if (sVessel   && r.vessel_name !== sVessel) return false;
       if (sTerminal && (r.vessel_terminal ?? '') !== sTerminal) return false;
+      if (sSource   && listSource(r) !== sSource) return false;
       if (sNext7    && !isWithin7Days(r.eta)) return false;
       return true;
     });
     return sortByEta(result);
-  }, [stueckgutRows, sSnr, sVessel, sTerminal, sNext7]);
+  }, [stueckgutRows, sSnr, sVessel, sTerminal, sSource, sNext7]);
 
   const ohneEtaRows = useMemo(() => rows.filter((r) => !r.eta), [rows]);
   const ohneEtaVessels = useMemo(() => [...new Set(ohneEtaRows.map((r) => r.vessel_name))].sort(), [ohneEtaRows]);
+  const ohneEtaSources = useMemo(() => [...new Set(ohneEtaRows.map((r) => listSource(r)))].sort(), [ohneEtaRows]);
 
   const filteredOhneEta = useMemo(() => {
     const snr = oSnr.trim().toLowerCase();
     return ohneEtaRows.filter((r) => {
       if (snr && !(r.shipment_reference ?? '').toLowerCase().includes(snr)) return false;
       if (oVessel && r.vessel_name !== oVessel) return false;
+      if (oSource && listSource(r) !== oSource) return false;
       return true;
     });
-  }, [ohneEtaRows, oSnr, oVessel]);
+  }, [ohneEtaRows, oSnr, oVessel, oSource]);
 
   const activeRows =
     activeTab === 'container' ? containerRows :
@@ -251,16 +262,16 @@ export default function SendungenPage() {
     activeTab === 'container' ? filteredContainer :
     activeTab === 'stueckgut' ? filteredStueckgut : filteredOhneEta;
 
-  const cActiveFilters = [cSnr, cContainer, cVessel, cTerminal, cStatus].some(Boolean) || cNext7;
-  const sActiveFilters = [sSnr, sVessel, sTerminal].some(Boolean) || sNext7;
-  const oActiveFilters = [oSnr, oVessel].some(Boolean);
+  const cActiveFilters = [cSnr, cContainer, cVessel, cTerminal, cStatus, cSource].some(Boolean) || cNext7;
+  const sActiveFilters = [sSnr, sVessel, sTerminal, sSource].some(Boolean) || sNext7;
+  const oActiveFilters = [oSnr, oVessel, oSource].some(Boolean);
   const anyFilter =
     activeTab === 'container' ? cActiveFilters :
     activeTab === 'stueckgut' ? sActiveFilters : oActiveFilters;
 
-  const clearC = () => { setCSnr(''); setCContainer(''); setCVessel(''); setCTerminal(''); setCStatus(''); setCNext7(false); };
-  const clearS = () => { setSSnr(''); setSVessel(''); setSTerminal(''); setSNext7(false); };
-  const clearO = () => { setOSnr(''); setOVessel(''); };
+  const clearC = () => { setCSnr(''); setCContainer(''); setCVessel(''); setCTerminal(''); setCStatus(''); setCSource(''); setCNext7(false); };
+  const clearS = () => { setSSnr(''); setSVessel(''); setSTerminal(''); setSSource(''); setSNext7(false); };
+  const clearO = () => { setOSnr(''); setOVessel(''); setOSource(''); };
 
   const stats = useMemo(() => ({
     total:       filtered.length,
@@ -453,6 +464,10 @@ export default function SendungenPage() {
             <option value="READY">Abnahmebereit</option>
             <option value="DELIVERED_OUT">Ausgeliefert</option>
           </select>
+          <select title="Source filtern" value={cSource} onChange={(e) => setCSource(e.target.value)} className={cn(SELECT_CLS, 'w-40')}>
+            <option value="">Alle Sources</option>
+            {containerSources.map((src) => <option key={src} value={src}>{src === 'UNSET' ? '—' : src}</option>)}
+          </select>
           {/* Next 7 days */}
           <Button
             variant={cNext7 ? 'secondary' : 'outline'}
@@ -493,6 +508,10 @@ export default function SendungenPage() {
             <option value="">Alle Terminals</option>
             {stueckgutTerminals.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
+          <select title="Source filtern" value={sSource} onChange={(e) => setSSource(e.target.value)} className={cn(SELECT_CLS, 'w-40')}>
+            <option value="">Alle Sources</option>
+            {stueckgutSources.map((src) => <option key={src} value={src}>{src === 'UNSET' ? '—' : src}</option>)}
+          </select>
           {/* Next 7 days */}
           <Button
             variant={sNext7 ? 'secondary' : 'outline'}
@@ -525,6 +544,10 @@ export default function SendungenPage() {
           <select title="Schiff filtern" value={oVessel} onChange={(e) => setOVessel(e.target.value)} className={cn(SELECT_CLS, 'w-48')}>
             <option value="">Alle Schiffe</option>
             {ohneEtaVessels.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+          <select title="Source filtern" value={oSource} onChange={(e) => setOSource(e.target.value)} className={cn(SELECT_CLS, 'w-40')}>
+            <option value="">Alle Sources</option>
+            {ohneEtaSources.map((src) => <option key={src} value={src}>{src === 'UNSET' ? '—' : src}</option>)}
           </select>
           {oActiveFilters && (
             <Button variant="ghost" size="sm" onClick={clearO} className="gap-1.5 h-10">
@@ -576,6 +599,7 @@ export default function SendungenPage() {
                 <TableHead className="text-xs uppercase tracking-wide">Anliefertermin</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide">Terminal</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide">Status</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide">Source</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide">Abgerufen</TableHead>
                 <TableHead className="w-10" />
               </TableRow>
@@ -583,7 +607,7 @@ export default function SendungenPage() {
             <TableBody>
               {filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={12} className="text-center py-10 text-muted-foreground">
+                  <TableCell colSpan={13} className="text-center py-10 text-muted-foreground">
                     {anyFilter ? 'Keine Treffer für die aktiven Filter.' : 'Keine Container-Sendungen vorhanden.'}
                   </TableCell>
                 </TableRow>
@@ -615,6 +639,7 @@ export default function SendungenPage() {
                   </TableCell>
                   <TableCell><TerminalCell terminal={row.terminal} vesselTerminal={row.vessel_terminal} /></TableCell>
                   <TableCell><StatusBadge status={row.normalized_status} raw={row.status_raw} /></TableCell>
+                  <TableCell><Badge variant="outline" className="text-xs">{(row.shipper_source ?? row.container_source ?? '—')}</Badge></TableCell>
                   <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{fmtTs(row.scraped_at)}</TableCell>
                   <TableCell>
                     <button
@@ -657,12 +682,13 @@ export default function SendungenPage() {
                 <TableHead className="text-xs uppercase tracking-wide">ETD</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide">Δ ETD</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide">Terminal</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide">Source</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
                     {anyFilter ? 'Keine Treffer für die aktiven Filter.' : 'Keine Stückgut-Sendungen vorhanden.'}
                   </TableCell>
                 </TableRow>
@@ -679,6 +705,7 @@ export default function SendungenPage() {
                   <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(row.etd)}</TableCell>
                   <TableCell><DayDeltaBadge days={row.etd_change_days} /></TableCell>
                   <TableCell><TerminalCell terminal={row.terminal} vesselTerminal={row.vessel_terminal} /></TableCell>
+                  <TableCell><Badge variant="outline" className="text-xs">{(row.shipper_source ?? row.container_source ?? '—')}</Badge></TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -697,13 +724,14 @@ export default function SendungenPage() {
                 <TableHead className="text-xs uppercase tracking-wide">Container</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide">Schiff</TableHead>
                 <TableHead className="text-xs uppercase tracking-wide">Anliefertermin</TableHead>
+                <TableHead className="text-xs uppercase tracking-wide">Source</TableHead>
                 <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
                     {anyFilter ? 'Keine Treffer für die aktiven Filter.' : 'Keine Sendungen ohne ETA vorhanden.'}
                   </TableCell>
                 </TableRow>

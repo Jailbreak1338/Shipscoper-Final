@@ -114,8 +114,8 @@ function withParams(base: Record<string, string>, patch: Record<string, string |
 
 export default async function ScheduleSearchPage({ searchParams }: { searchParams: SearchParams }) {
   const supabase = createServerComponentClient({ cookies });
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) redirect('/login');
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/login');
 
   const q = (searchParams.q ?? '').trim();
   const source = (searchParams.source ?? 'all').trim().toLowerCase();
@@ -134,7 +134,7 @@ export default async function ScheduleSearchPage({ searchParams }: { searchParam
   let snrVesselIds: string[] | null = null;
   if (snr) {
     const { data: snrWatches } = await supabase
-      .from('vessel_watches').select('vessel_name_normalized').eq('user_id', session.user.id).ilike('shipment_reference', `%${snr}%`);
+      .from('vessel_watches').select('vessel_name_normalized').eq('user_id', user.id).ilike('shipment_reference', `%${snr}%`);
     const snrNormalizedNames = [...new Set((snrWatches ?? []).map((w: { vessel_name_normalized: string }) => w.vessel_name_normalized).filter(Boolean))];
     if (snrNormalizedNames.length > 0) {
       // Query vessels directly (reliable real table, not a view)
@@ -155,13 +155,39 @@ export default async function ScheduleSearchPage({ searchParams }: { searchParam
   const sorted = applySort(filtered, sort);
   const pageQuery = sorted.range(from, to);
 
-  const [pageRes, vesselCountRes, eventCountRes, lastRunRes, watchedRes] = await Promise.all([
+  const [pageRes, vesselCountRes, eventCountRes, lastRunRes] = await Promise.all([
     pageQuery,
     admin.from('vessels').select('id', { count: 'exact', head: true }),
     admin.from('schedule_events').select('id', { count: 'exact', head: true }),
     admin.from('scraper_runs').select('status, started_at, completed_at, vessels_scraped').order('started_at', { ascending: false }).limit(1).maybeSingle(),
-    supabase.from('vessel_watches').select('vessel_name_normalized, shipment_reference, container_reference').eq('user_id', session.user.id),
   ]);
+
+  let watchedRows: Array<{ vessel_name_normalized: string; shipment_reference: string | null; container_reference: string | null; container_source: string | null; shipper_source: string | null }> = [];
+  {
+    const withShipper = await supabase
+      .from('vessel_watches')
+      .select('vessel_name_normalized, shipment_reference, container_reference, container_source, shipper_source')
+      .eq('user_id', user.id);
+
+    if (withShipper.error?.message?.includes('shipper_source')) {
+      const fallback = await supabase
+        .from('vessel_watches')
+        .select('vessel_name_normalized, shipment_reference, container_reference, container_source')
+        .eq('user_id', user.id);
+      if (fallback.error) {
+        console.error('Failed to load watchlist source mapping fallback:', fallback.error);
+      } else {
+        watchedRows = (fallback.data ?? []).map((row: { vessel_name_normalized: string; shipment_reference: string | null; container_reference: string | null; container_source: string | null }) => ({
+          ...row,
+          shipper_source: null,
+        }));
+      }
+    } else if (withShipper.error) {
+      console.error('Failed to load watchlist source mapping:', withShipper.error);
+    } else {
+      watchedRows = (withShipper.data ?? []) as typeof watchedRows;
+    }
+  }
 
   if (pageRes.error) {
     return (
@@ -201,7 +227,15 @@ export default async function ScheduleSearchPage({ searchParams }: { searchParam
   if (snr) baseParams.snr = snr;
   if (pageSize !== 25) baseParams.pageSize = String(pageSize);
 
-  const watchedRows = (watchedRes.data ?? []) as Array<{ vessel_name_normalized: string; shipment_reference: string | null; container_reference: string | null }>;
+  const listSourceByVessel = watchedRows.reduce<Record<string, string[]>>((acc, row) => {
+    const src = (row.shipper_source ?? row.container_source ?? '').trim();
+    if (!src) return acc;
+    const key = row.vessel_name_normalized;
+    const existing = acc[key] ?? [];
+    if (!existing.includes(src)) existing.push(src);
+    acc[key] = existing;
+    return acc;
+  }, {});
   const buildByVessel = (rows: typeof watchedRows, field: 'shipment_reference' | 'container_reference'): Record<string, string[]> =>
     rows.reduce<Record<string, string[]>>((acc, row) => {
       const raw = row[field];
@@ -313,6 +347,7 @@ export default async function ScheduleSearchPage({ searchParams }: { searchParam
         rows={rows}
         initialShipmentByVessel={shipmentByVessel}
         initialContainerByVessel={containerByVessel}
+        initialListSourceByVessel={listSourceByVessel}
         initialSnrFilter={snr}
       />
 

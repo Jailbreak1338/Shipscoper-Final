@@ -3,7 +3,8 @@
 from utils.normalization import normalize_vessel_name
 
 
-def run() -> None:
+def test_normalize_vessel_name_cases() -> None:
+    """Verify canonical vessel name normalization for representative inputs."""
     cases = [
         (" ever given ", "EVER GIVEN"),
         ("MSC    OSCAR", "MSC OSCAR"),
@@ -16,6 +17,10 @@ def run() -> None:
         actual = normalize_vessel_name(raw)
         assert actual == expected, f"{raw!r} -> {actual!r}, expected {expected!r}"
 
+
+def run() -> None:
+    """Backward-compatible direct runner for ad-hoc local checks."""
+    test_normalize_vessel_name_cases()
     print("Normalization test passed (5 cases).")
 
 

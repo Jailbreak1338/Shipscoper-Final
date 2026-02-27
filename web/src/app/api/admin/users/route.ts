@@ -13,6 +13,125 @@ const updateRoleSchema = z.object({
   role: z.enum(['admin', 'user']),
 });
 
+function mapCreateUserError(error: unknown): { status: number; message: string } {
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+
+  if (lower.includes('already') || lower.includes('exists') || lower.includes('duplicate') || lower.includes('23505')) {
+    return { status: 409, message: 'Benutzer existiert bereits.' };
+  }
+
+  if (lower.includes('invalid') || lower.includes('email')) {
+    return { status: 400, message: 'Ungültige E-Mail-Adresse.' };
+  }
+
+  if (lower.includes('resend') || lower.includes('e-mail')) {
+    return { status: 502, message: 'Einladung erstellt, aber E-Mail-Versand fehlgeschlagen.' };
+  }
+
+  if (lower.includes('unexpected_failure') || lower.includes('database error saving new user') || lower.includes('user_roles') || lower.includes('database') || lower.includes('relation')) {
+    return { status: 500, message: 'Database error saving new user. Please verify Supabase trigger/function for user_roles.' };
+  }
+
+  return { status: 500, message: 'Benutzer konnte nicht angelegt werden.' };
+}
+
+
+
+function mapAdminUserManagementError(error: unknown, fallbackMessage: string): { status: number; message: string } {
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+
+  if (lower.includes('not found')) {
+    return { status: 404, message: 'Benutzer nicht gefunden.' };
+  }
+
+  if (lower.includes('forbidden') || lower.includes('permission') || lower.includes('unauthorized')) {
+    return { status: 403, message: 'Keine Berechtigung für diese Aktion.' };
+  }
+
+  return { status: 500, message: fallbackMessage };
+}
+
+async function getInviteLinkAndUserId(
+  supabaseAdmin: Awaited<ReturnType<typeof import('@/lib/supabaseServer')['getSupabaseAdmin']>>,
+  email: string
+): Promise<{ userId: string; inviteUrl: string; reusedExistingUser: boolean }> {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const { data: listedUsers } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  const existing = listedUsers?.users.find((u) => (u.email ?? '').toLowerCase() === normalizedEmail) ?? null;
+
+  if (existing?.id) {
+    const { data: recoveryLinkData, error: recoveryLinkError } =
+      await supabaseAdmin.auth.admin.generateLink({
+        type: 'recovery',
+        email,
+      });
+
+    if (recoveryLinkError) throw recoveryLinkError;
+
+    const inviteUrl = recoveryLinkData?.properties?.action_link;
+    if (!inviteUrl) {
+      throw new Error('Failed to generate recovery link for existing user.');
+    }
+
+    return { userId: existing.id, inviteUrl, reusedExistingUser: true };
+  }
+
+  const { data: inviteLinkData, error: inviteLinkError } =
+    await supabaseAdmin.auth.admin.generateLink({
+      type: 'invite',
+      email,
+    });
+
+  if (inviteLinkError) throw inviteLinkError;
+
+  const invitedUserId = inviteLinkData?.user?.id;
+  const inviteUrl = inviteLinkData?.properties?.action_link;
+
+  if (!invitedUserId || !inviteUrl) {
+    throw new Error('Database error saving new user. Missing invite payload from auth service.');
+  }
+
+  return { userId: invitedUserId, inviteUrl, reusedExistingUser: false };
+}
+
+
+function getAppBaseUrl(): string {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.APP_URL ||
+    'https://www.shipscoper.com'
+  ).replace(/\/$/, '');
+}
+
+function withRedirectTo(actionLink: string): string {
+  try {
+    const url = new URL(actionLink);
+    url.searchParams.set('redirect_to', `${getAppBaseUrl()}/auth/callback`);
+    return url.toString();
+  } catch {
+    return actionLink;
+  }
+}
+
+
+function buildPasswordSetupLink(actionLink: string, type: 'invite' | 'recovery'): string {
+  const fallback = withRedirectTo(actionLink);
+  try {
+    const parsed = new URL(actionLink);
+    const tokenHash = parsed.searchParams.get('token_hash') || parsed.searchParams.get('token');
+    if (!tokenHash) return fallback;
+    const callback = new URL('/auth/callback', getAppBaseUrl());
+    callback.searchParams.set('token_hash', tokenHash);
+    callback.searchParams.set('type', type);
+    return callback.toString();
+  } catch {
+    return fallback;
+  }
+}
+
 async function isAdmin(userId: string): Promise<boolean> {
   // Use service-role client to bypass RLS for the role check
   const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
@@ -32,13 +151,13 @@ export async function GET() {
   const supabase = createRouteHandlerClient({ cookies });
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  if (!(await isAdmin(session.user.id))) {
+  if (!(await isAdmin(user.id))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -94,13 +213,13 @@ export async function POST(req: NextRequest) {
   const supabase = createRouteHandlerClient({ cookies });
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  if (!(await isAdmin(session.user.id))) {
+  if (!(await isAdmin(user.id))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -111,31 +230,26 @@ export async function POST(req: NextRequest) {
     const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
     const supabaseAdmin = getSupabaseAdmin();
 
-    // Generate invite link without auto-sending (so we can send via Resend)
-    const { data: linkData, error: linkError } =
-      await supabaseAdmin.auth.admin.generateLink({
-        type: 'invite',
-        email,
-      });
-
-    if (linkError) throw linkError;
+    // Existing emails: use recovery link; new emails: invite link.
+    // This avoids flaky AuthApiError('Database error saving new user') on duplicate/inconsistent invite attempts.
+    const { userId, inviteUrl: inviteActionUrl, reusedExistingUser } = await getInviteLinkAndUserId(supabaseAdmin, email);
+    const inviteLink = buildPasswordSetupLink(inviteActionUrl, reusedExistingUser ? 'recovery' : 'invite');
 
     // Assign role (trigger may have already created a 'user' row)
     const { error: roleError } = await supabaseAdmin
       .from('user_roles')
       .upsert(
-        { user_id: linkData.user.id, role, updated_at: new Date().toISOString() },
+        { user_id: userId, role, updated_at: new Date().toISOString() },
         { onConflict: 'user_id' }
       );
 
     if (roleError) throw roleError;
 
     // Send invite email via Resend from hello@shipscoper.com
-    const inviteUrl = linkData.properties.action_link;
     const resendRes = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        'Authorization': `Bearer ${process.env.RESEND_API_KEY ?? ''}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -143,17 +257,17 @@ export async function POST(req: NextRequest) {
         to: email,
         subject: 'Einladung zu Shipscoper',
         html: `
-          <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;">
-            <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;">Du wurdest zu Shipscoper eingeladen</h2>
-            <p style="color:#6b7280;font-size:14px;margin-bottom:24px;">
+          <div style="font-family:Inter,Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;background:#0b1220;border:1px solid #1f2937;border-radius:14px;">
+            <h2 style="font-size:22px;font-weight:700;margin-bottom:8px;color:#f8fafc;">Du wurdest zu Shipscoper eingeladen</h2>
+            <p style="color:#cbd5e1;font-size:14px;line-height:1.6;margin-bottom:24px;">
               Klicke auf den Button unten, um dein Passwort festzulegen und deinen Account zu aktivieren.
             </p>
-            <a href="${inviteUrl}"
-               style="display:inline-block;background:#0f172a;color:#fff;font-size:14px;font-weight:600;
-                      padding:12px 24px;border-radius:8px;text-decoration:none;">
+            <a href="${inviteLink}"
+               style="display:inline-block;background:#00C9A7;color:#032b2c;font-size:14px;font-weight:700;
+                      padding:12px 24px;border-radius:10px;text-decoration:none;border:1px solid #36e0c6;box-shadow:0 0 0 1px rgba(0,201,167,0.2) inset;">
               Passwort festlegen
             </a>
-            <p style="color:#9ca3af;font-size:12px;margin-top:32px;">
+            <p style="color:#94a3b8;font-size:12px;line-height:1.6;margin-top:32px;">
               Falls du diesen Link nicht angefordert hast, kannst du diese E-Mail ignorieren.<br/>
               Der Link ist 24 Stunden gültig.
             </p>
@@ -162,7 +276,7 @@ export async function POST(req: NextRequest) {
       }),
     });
 
-    if (!resendRes.ok) {
+    if (!process.env.RESEND_API_KEY || !resendRes.ok) {
       const resendErr = await resendRes.text();
       console.error('Resend error:', resendErr);
       throw new Error('E-Mail konnte nicht gesendet werden');
@@ -170,12 +284,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      user: { id: linkData.user.id, email: linkData.user.email, role },
+      user: { id: userId, email, role },
+      reusedExistingUser,
     });
   } catch (error) {
     console.error('Error creating user:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const mapped = mapCreateUserError(error);
+    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
   }
 }
 
@@ -184,13 +299,13 @@ export async function PATCH(req: NextRequest) {
   const supabase = createRouteHandlerClient({ cookies });
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  if (!(await isAdmin(session.user.id))) {
+  if (!(await isAdmin(user.id))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -199,7 +314,7 @@ export async function PATCH(req: NextRequest) {
     const { userId, role } = updateRoleSchema.parse(body);
 
     // Prevent demoting yourself
-    if (userId === session.user.id && role !== 'admin') {
+    if (userId === user.id && role !== 'admin') {
       return NextResponse.json(
         { error: 'Cannot remove your own admin role' },
         { status: 400 }
@@ -219,8 +334,8 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error updating role:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const mapped = mapAdminUserManagementError(error, 'Rolle konnte nicht aktualisiert werden.');
+    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
   }
 }
 
@@ -229,13 +344,13 @@ export async function DELETE(req: NextRequest) {
   const supabase = createRouteHandlerClient({ cookies });
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  if (!(await isAdmin(session.user.id))) {
+  if (!(await isAdmin(user.id))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -250,7 +365,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    if (userId === session.user.id) {
+    if (userId === user.id) {
       return NextResponse.json(
         { error: 'Cannot delete your own account' },
         { status: 400 }
@@ -266,7 +381,7 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting user:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const mapped = mapAdminUserManagementError(error, 'Benutzer konnte nicht gelöscht werden.');
+    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
   }
 }

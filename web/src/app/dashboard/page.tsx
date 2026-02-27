@@ -101,8 +101,8 @@ function buildSparkline(points: EtaTrendPoint[]): string {
 
 export default async function DashboardPage() {
   const supabase = createServerComponentClient({ cookies });
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) redirect('/login');
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/login');
 
   const adminClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -111,13 +111,13 @@ export default async function DashboardPage() {
   );
 
   const { data: roleData } = await adminClient
-    .from('user_roles').select('role').eq('user_id', session.user.id).single();
+    .from('user_roles').select('role').eq('user_id', user.id).single();
   const isAdmin = (roleData as { role: string } | null)?.role === 'admin';
 
   const { data: userUploads } = await adminClient
     .from('upload_logs')
     .select('*')
-    .eq('user_id', session.user.id)
+    .eq('user_id', user.id)
     .order('created_at', { ascending: false })
     .limit(10);
 

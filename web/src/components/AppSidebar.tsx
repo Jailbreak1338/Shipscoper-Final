@@ -11,6 +11,7 @@ import {
   Package,
   Search,
   ShieldCheck,
+  Truck,
   LogOut,
   ChevronRight,
 } from 'lucide-react';
@@ -29,6 +30,7 @@ const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/watchlist', label: 'Watchlist', icon: Eye },
   { href: '/sendungen', label: 'Sendungen', icon: Package },
+  { href: '/demurrage-storage-guard', label: 'Demurrage/Storage', icon: Truck },
   { href: '/schedule-search', label: 'Suche', icon: Search },
   { href: '/admin', label: 'Admin', icon: ShieldCheck, adminOnly: true },
 ];
