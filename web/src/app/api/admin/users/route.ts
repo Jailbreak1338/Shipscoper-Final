@@ -29,11 +29,56 @@ function mapCreateUserError(error: unknown): { status: number; message: string }
     return { status: 502, message: 'Einladung erstellt, aber E-Mail-Versand fehlgeschlagen.' };
   }
 
-  if (lower.includes('user_roles') || lower.includes('database') || lower.includes('relation')) {
-    return { status: 500, message: 'Database error saving new user.' };
+  if (lower.includes('unexpected_failure') || lower.includes('database error saving new user') || lower.includes('user_roles') || lower.includes('database') || lower.includes('relation')) {
+    return { status: 500, message: 'Database error saving new user. Please verify Supabase trigger/function for user_roles.' };
   }
 
   return { status: 500, message: 'Benutzer konnte nicht angelegt werden.' };
+}
+
+
+async function getInviteLinkAndUserId(
+  supabaseAdmin: Awaited<ReturnType<typeof import('@/lib/supabaseServer')['getSupabaseAdmin']>>,
+  email: string
+): Promise<{ userId: string; inviteUrl: string; reusedExistingUser: boolean }> {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  const { data: listedUsers } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  const existing = listedUsers?.users.find((u) => (u.email ?? '').toLowerCase() === normalizedEmail) ?? null;
+
+  if (existing?.id) {
+    const { data: recoveryLinkData, error: recoveryLinkError } =
+      await supabaseAdmin.auth.admin.generateLink({
+        type: 'recovery',
+        email,
+      });
+
+    if (recoveryLinkError) throw recoveryLinkError;
+
+    const inviteUrl = recoveryLinkData?.properties?.action_link;
+    if (!inviteUrl) {
+      throw new Error('Failed to generate recovery link for existing user.');
+    }
+
+    return { userId: existing.id, inviteUrl, reusedExistingUser: true };
+  }
+
+  const { data: inviteLinkData, error: inviteLinkError } =
+    await supabaseAdmin.auth.admin.generateLink({
+      type: 'invite',
+      email,
+    });
+
+  if (inviteLinkError) throw inviteLinkError;
+
+  const invitedUserId = inviteLinkData?.user?.id;
+  const inviteUrl = inviteLinkData?.properties?.action_link;
+
+  if (!invitedUserId || !inviteUrl) {
+    throw new Error('Database error saving new user. Missing invite payload from auth service.');
+  }
+
+  return { userId: invitedUserId, inviteUrl, reusedExistingUser: false };
 }
 
 async function isAdmin(userId: string): Promise<boolean> {
@@ -134,14 +179,9 @@ export async function POST(req: NextRequest) {
     const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
     const supabaseAdmin = getSupabaseAdmin();
 
-    // Generate invite link without auto-sending (so we can send via Resend)
-    const { data: linkData, error: linkError } =
-      await supabaseAdmin.auth.admin.generateLink({
-        type: 'invite',
-        email,
-      });
-
-    if (linkError) throw linkError;
+    // Existing emails: use recovery link; new emails: invite link.
+    // This avoids flaky AuthApiError('Database error saving new user') on duplicate/inconsistent invite attempts.
+    const { userId, inviteUrl, reusedExistingUser } = await getInviteLinkAndUserId(supabaseAdmin, email);
 
     const invitedUserId = linkData?.user?.id;
     const inviteUrl = linkData?.properties?.action_link;
@@ -154,7 +194,7 @@ export async function POST(req: NextRequest) {
     const { error: roleError } = await supabaseAdmin
       .from('user_roles')
       .upsert(
-        { user_id: invitedUserId, role, updated_at: new Date().toISOString() },
+        { user_id: userId, role, updated_at: new Date().toISOString() },
         { onConflict: 'user_id' }
       );
 
@@ -199,7 +239,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      user: { id: invitedUserId, email: linkData?.user?.email ?? email, role },
+      user: { id: userId, email, role },
+      reusedExistingUser,
     });
   } catch (error) {
     console.error('Error creating user:', error);
