@@ -37,6 +37,22 @@ function mapCreateUserError(error: unknown): { status: number; message: string }
 }
 
 
+
+function mapAdminUserManagementError(error: unknown, fallbackMessage: string): { status: number; message: string } {
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+
+  if (lower.includes('not found')) {
+    return { status: 404, message: 'Benutzer nicht gefunden.' };
+  }
+
+  if (lower.includes('forbidden') || lower.includes('permission') || lower.includes('unauthorized')) {
+    return { status: 403, message: 'Keine Berechtigung für diese Aktion.' };
+  }
+
+  return { status: 500, message: fallbackMessage };
+}
+
 async function getInviteLinkAndUserId(
   supabaseAdmin: Awaited<ReturnType<typeof import('@/lib/supabaseServer')['getSupabaseAdmin']>>,
   email: string
@@ -135,13 +151,13 @@ export async function GET() {
   const supabase = createRouteHandlerClient({ cookies });
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  if (!(await isAdmin(session.user.id))) {
+  if (!(await isAdmin(user.id))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -197,13 +213,13 @@ export async function POST(req: NextRequest) {
   const supabase = createRouteHandlerClient({ cookies });
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  if (!(await isAdmin(session.user.id))) {
+  if (!(await isAdmin(user.id))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -283,13 +299,13 @@ export async function PATCH(req: NextRequest) {
   const supabase = createRouteHandlerClient({ cookies });
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  if (!(await isAdmin(session.user.id))) {
+  if (!(await isAdmin(user.id))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -298,7 +314,7 @@ export async function PATCH(req: NextRequest) {
     const { userId, role } = updateRoleSchema.parse(body);
 
     // Prevent demoting yourself
-    if (userId === session.user.id && role !== 'admin') {
+    if (userId === user.id && role !== 'admin') {
       return NextResponse.json(
         { error: 'Cannot remove your own admin role' },
         { status: 400 }
@@ -318,7 +334,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error updating role:', error);
-    const mapped = mapCreateUserError(error);
+    const mapped = mapAdminUserManagementError(error, 'Rolle konnte nicht aktualisiert werden.');
     return NextResponse.json({ error: mapped.message }, { status: mapped.status });
   }
 }
@@ -328,13 +344,13 @@ export async function DELETE(req: NextRequest) {
   const supabase = createRouteHandlerClient({ cookies });
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  if (!(await isAdmin(session.user.id))) {
+  if (!(await isAdmin(user.id))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -349,7 +365,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    if (userId === session.user.id) {
+    if (userId === user.id) {
       return NextResponse.json(
         { error: 'Cannot delete your own account' },
         { status: 400 }
@@ -365,7 +381,7 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting user:', error);
-    const mapped = mapCreateUserError(error);
+    const mapped = mapAdminUserManagementError(error, 'Benutzer konnte nicht gelöscht werden.');
     return NextResponse.json({ error: mapped.message }, { status: mapped.status });
   }
 }

@@ -42,7 +42,7 @@ npm run dev
 Optional:
 
 ```bash
-npm run build
+npm run build    # includes merge-conflict guard
 npm run start
 npm run generate-sample
 ```
@@ -98,6 +98,8 @@ Use:
 - `MAX_FILE_MB`
 - `TMP_TTL_MIN`
 - `NODE_ENV`
+- `NEXT_PUBLIC_SITE_URL`
+- `APP_URL`
 
 ## 4. Schedule (Final)
 

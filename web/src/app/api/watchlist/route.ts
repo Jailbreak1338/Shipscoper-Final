@@ -12,6 +12,27 @@ function parseShipmentRefs(input: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+function normalizeContainerSource(input: unknown): 'HHLA' | 'EUROGATE' | 'AUTO' | null {
+  const value = String(input ?? '').trim().toUpperCase();
+  if (!value) return null;
+  if (value === 'HHLA' || value === 'EUROGATE' || value === 'AUTO') return value;
+  return null;
+}
+
+function normalizeShipmentMode(input: unknown): 'LCL' | 'FCL' {
+  return String(input ?? '').trim().toUpperCase() === 'FCL' ? 'FCL' : 'LCL';
+}
+
+function shouldApplyEtaUpdate(currentEta: string | null, latestEta: string | null): boolean {
+  if (!latestEta) return false;
+  if (!currentEta) return true;
+  const currentTs = Date.parse(currentEta);
+  const latestTs = Date.parse(latestEta);
+  if (Number.isNaN(currentTs) || Number.isNaN(latestTs)) return true;
+  const dayDiff = Math.abs(latestTs - currentTs) / 86_400_000;
+  return dayDiff <= 31;
+}
+
 async function isShipmentRefAlreadyAssigned(
   supabase: ReturnType<typeof createRouteHandlerClient>,
   userId: string,
@@ -74,7 +95,10 @@ export async function GET() {
         );
         for (const watch of data ?? []) {
           if (watch.vessel_name_normalized && etaMap.has(watch.vessel_name_normalized)) {
-            watch.last_known_eta = etaMap.get(watch.vessel_name_normalized) ?? watch.last_known_eta;
+            const nextEta = etaMap.get(watch.vessel_name_normalized) ?? null;
+            if (shouldApplyEtaUpdate(watch.last_known_eta as string | null, nextEta)) {
+              watch.last_known_eta = nextEta ?? watch.last_known_eta;
+            }
           }
         }
       }
@@ -122,10 +146,28 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const vesselName = (body.vesselName ?? '').trim();
   const shipmentReference = (body.shipmentReference ?? '').trim() || null;
+  const containerSource = normalizeContainerSource(body.containerSource);
+  const shipmentMode = normalizeShipmentMode(body.shipmentMode);
+  const shipperSource = String(body.shipperSource ?? '').trim() || null;
+  const containerReference = String(body.containerReference ?? '').trim() || null;
 
   if (!vesselName) {
     return NextResponse.json(
       { error: 'Vessel name is required' },
+      { status: 400 }
+    );
+  }
+
+  if (!shipmentReference) {
+    return NextResponse.json(
+      { error: 'S-Nr. ist erforderlich' },
+      { status: 400 }
+    );
+  }
+
+  if (body.containerSource && !containerSource) {
+    return NextResponse.json(
+      { error: 'Ungültige Source. Erlaubt: HHLA, EUROGATE, AUTO' },
       { status: 400 }
     );
   }
@@ -166,6 +208,10 @@ export async function POST(request: NextRequest) {
     vessel_name: vesselName,
     vessel_name_normalized: normalized,
     shipment_reference: shipmentReference,
+    container_source: containerSource,
+    shipment_mode: shipmentMode,
+    shipper_source: shipperSource,
+    container_reference: containerReference,
     last_known_eta: currentEta,
   }).select().single();
 
@@ -213,7 +259,13 @@ export async function POST(request: NextRequest) {
         if (merged !== (existing.shipment_reference || '')) {
           const { data: updated, error: updateErr } = await supabase
             .from('vessel_watches')
-            .update({ shipment_reference: merged })
+            .update({
+              shipment_reference: merged,
+              shipment_mode: shipmentMode,
+              shipper_source: shipperSource,
+              container_source: containerSource,
+              container_reference: containerReference ?? existing.container_reference,
+            })
             .eq('id', existing.id)
             .select()
             .single();
@@ -262,4 +314,38 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ watch: data }, { status: 201 });
+}
+
+
+/** DELETE /api/watchlist — bulk remove vessels from watchlist */
+export async function DELETE(request: NextRequest) {
+  const supabase = createRouteHandlerClient({ cookies });
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const body = await request.json().catch(() => ({}));
+  const ids = Array.isArray(body.ids)
+    ? body.ids.map((id: unknown) => String(id).trim()).filter(Boolean)
+    : [];
+
+  if (ids.length === 0) {
+    return NextResponse.json({ error: 'Keine IDs angegeben' }, { status: 400 });
+  }
+
+  const { error } = await supabase
+    .from('vessel_watches')
+    .delete()
+    .eq('user_id', session.user.id)
+    .in('id', ids);
+
+  if (error) {
+    console.error('Failed to bulk delete watches:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ success: true, deleted: ids.length });
 }

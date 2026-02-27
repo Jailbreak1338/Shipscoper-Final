@@ -29,18 +29,18 @@ async function isAdmin(userId: string): Promise<boolean> {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const supabase = createServerComponentClient({ cookies });
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  const userIsAdmin = session ? await isAdmin(session.user.id) : false;
+  const userIsAdmin = user ? await isAdmin(user.id) : false;
 
   return (
     <html lang="de" className="dark">
       <body className="min-h-screen bg-background text-foreground antialiased">
-        {session ? (
+        {user ? (
           <div className="flex h-screen overflow-hidden">
             <AppSidebar
-              userEmail={session.user.email ?? ''}
+              userEmail={user.email ?? ''}
               isAdmin={userIsAdmin}
             />
             <main className="flex-1 overflow-y-auto bg-background">

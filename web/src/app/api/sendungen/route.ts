@@ -29,9 +29,9 @@ export async function GET() {
 
   // Try to select container_snr_pairs; fall back without it if column doesn't exist
   const SELECT_WITH_PAIRS =
-    'id, vessel_name, vessel_name_normalized, shipment_reference, container_reference, container_snr_pairs, container_source, notification_enabled';
+    'id, vessel_name, vessel_name_normalized, shipment_reference, container_reference, container_snr_pairs, container_source, shipper_source, shipment_mode, notification_enabled';
   const SELECT_WITHOUT_PAIRS =
-    'id, vessel_name, vessel_name_normalized, shipment_reference, container_reference, container_source, notification_enabled';
+    'id, vessel_name, vessel_name_normalized, shipment_reference, container_reference, container_source, shipper_source, shipment_mode, notification_enabled';
 
   let watches: Record<string, unknown>[] | null = null;
   let hasPairsColumn = true;
@@ -123,6 +123,8 @@ export async function GET() {
       vessel_name:          w.vessel_name,
       vessel_name_normalized: norm,
       container_source:     w.container_source,
+      shipper_source:       w.shipper_source,
+      shipment_mode:        w.shipment_mode ?? (parseContainerNos(w.container_reference as string | null).length > 0 ? 'FCL' : 'LCL'),
       notification_enabled: w.notification_enabled,
       eta,
       etd,
@@ -158,10 +160,20 @@ export async function GET() {
       });
     }
 
-    // Stückgut — one row per S-Nr
+    // Stückgut/FCL fallback — one row per S-Nr
     const snrs = parseSNrs(w.shipment_reference as string | null);
+    const isFclMode = String(w.shipment_mode ?? '').toUpperCase() === 'FCL';
     return (snrs.length > 0 ? snrs : [null]).map((snr) => ({
-      ...common, has_container: false, shipment_reference: snr, container_no: '', delivery_date: null, terminal: null, provider: null, normalized_status: null, status_raw: null, scraped_at: null,
+      ...common,
+      has_container: isFclMode,
+      shipment_reference: snr,
+      container_no: isFclMode ? 'MANUELL' : '',
+      delivery_date: null,
+      terminal: null,
+      provider: null,
+      normalized_status: null,
+      status_raw: null,
+      scraped_at: null,
     }));
   });
 
