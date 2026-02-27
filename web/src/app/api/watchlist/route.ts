@@ -203,17 +203,35 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const { data, error } = await supabase.from('vessel_watches').insert({
+  const insertPayloadBase = {
     user_id: session.user.id,
     vessel_name: vesselName,
     vessel_name_normalized: normalized,
     shipment_reference: shipmentReference,
     container_source: containerSource,
-    shipment_mode: shipmentMode,
-    shipper_source: shipperSource,
     container_reference: containerReference,
     last_known_eta: currentEta,
-  }).select().single();
+  };
+
+  let data: Record<string, unknown> | null = null;
+  let error: { code?: string; message?: string } | null = null;
+
+  {
+    const withNewCols = await supabase.from('vessel_watches').insert({
+      ...insertPayloadBase,
+      shipment_mode: shipmentMode,
+      shipper_source: shipperSource,
+    }).select().single();
+
+    if (withNewCols.error?.message?.includes('shipper_source') || withNewCols.error?.message?.includes('shipment_mode')) {
+      const fallback = await supabase.from('vessel_watches').insert(insertPayloadBase).select().single();
+      data = (fallback.data as Record<string, unknown> | null) ?? null;
+      error = fallback.error as { code?: string; message?: string } | null;
+    } else {
+      data = (withNewCols.data as Record<string, unknown> | null) ?? null;
+      error = withNewCols.error as { code?: string; message?: string } | null;
+    }
+  }
 
   if (error) {
     if (error.code === '23505') {
@@ -257,18 +275,41 @@ export async function POST(request: NextRequest) {
         ).join(', ');
 
         if (merged !== (existing.shipment_reference || '')) {
-          const { data: updated, error: updateErr } = await supabase
-            .from('vessel_watches')
-            .update({
-              shipment_reference: merged,
-              shipment_mode: shipmentMode,
-              shipper_source: shipperSource,
-              container_source: containerSource,
-              container_reference: containerReference ?? existing.container_reference,
-            })
-            .eq('id', existing.id)
-            .select()
-            .single();
+          let updated: Record<string, unknown> | null = null;
+          let updateErr: { message?: string } | null = null;
+
+          {
+            const withNewCols = await supabase
+              .from('vessel_watches')
+              .update({
+                shipment_reference: merged,
+                shipment_mode: shipmentMode,
+                shipper_source: shipperSource,
+                container_source: containerSource,
+                container_reference: containerReference ?? existing.container_reference,
+              })
+              .eq('id', existing.id)
+              .select()
+              .single();
+
+            if (withNewCols.error?.message?.includes('shipper_source') || withNewCols.error?.message?.includes('shipment_mode')) {
+              const fallback = await supabase
+                .from('vessel_watches')
+                .update({
+                  shipment_reference: merged,
+                  container_source: containerSource,
+                  container_reference: containerReference ?? existing.container_reference,
+                })
+                .eq('id', existing.id)
+                .select()
+                .single();
+              updated = (fallback.data as Record<string, unknown> | null) ?? null;
+              updateErr = fallback.error as { message?: string } | null;
+            } else {
+              updated = (withNewCols.data as Record<string, unknown> | null) ?? null;
+              updateErr = withNewCols.error as { message?: string } | null;
+            }
+          }
 
           if (updateErr) {
             console.error('Failed to update shipment reference on existing watch:', updateErr);
