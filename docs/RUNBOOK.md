@@ -42,7 +42,7 @@ npm run dev
 Optional:
 
 ```bash
-npm run build
+npm run build    # includes merge-conflict guard
 npm run start
 npm run generate-sample
 ```
@@ -98,6 +98,8 @@ Use:
 - `MAX_FILE_MB`
 - `TMP_TTL_MIN`
 - `NODE_ENV`
+- `NEXT_PUBLIC_SITE_URL`
+- `APP_URL`
 
 ## 4. Schedule (Final)
 
@@ -143,3 +145,29 @@ Mail workflow semantics:
 ## 7. External Ops Steps
 
 If environment/UI changes are needed outside the repo, follow `OPS-CHECKLIST.md`.
+
+
+## 8. Invite / Password-Setup Flow (Admin Users)
+
+If invited users land on `/login` or `/` instead of password setup, verify all of the following:
+
+1. Supabase Auth URL config:
+   - **Site URL** = `https://www.shipscoper.com`
+   - **Redirect URLs** include:
+     - `https://www.shipscoper.com/auth/callback`
+     - preview/staging callback URLs if used.
+2. Vercel env vars:
+   - `NEXT_PUBLIC_SITE_URL=https://www.shipscoper.com` (preferred)
+   - or `APP_URL=https://www.shipscoper.com`
+3. Deployment includes auth callback commits:
+   - `18164be` (auth callback + set-password page)
+   - `cb6aba3` (invite/recovery link normalization)
+4. Build guard should pass:
+   - `cd web && npm run build`
+   - first step prints `No merge conflict markers detected.`
+
+Quick validation after deploy:
+- Invite a new user from `/admin/users`.
+- Open email link and confirm redirect to `/auth/callback` then `/set-password`.
+- Set password and confirm automatic redirect to `/eta-updater`.
+
