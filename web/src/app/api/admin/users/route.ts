@@ -241,17 +241,17 @@ export async function POST(req: NextRequest) {
         to: email,
         subject: 'Einladung zu Shipscoper',
         html: `
-          <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;">
-            <h2 style="font-size:20px;font-weight:700;margin-bottom:8px;">Du wurdest zu Shipscoper eingeladen</h2>
-            <p style="color:#6b7280;font-size:14px;margin-bottom:24px;">
+          <div style="font-family:Inter,Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;background:#0b1220;border:1px solid #1f2937;border-radius:14px;">
+            <h2 style="font-size:22px;font-weight:700;margin-bottom:8px;color:#f8fafc;">Du wurdest zu Shipscoper eingeladen</h2>
+            <p style="color:#cbd5e1;font-size:14px;line-height:1.6;margin-bottom:24px;">
               Klicke auf den Button unten, um dein Passwort festzulegen und deinen Account zu aktivieren.
             </p>
             <a href="${inviteLink}"
-               style="display:inline-block;background:#0f172a;color:#fff;font-size:14px;font-weight:600;
-                      padding:12px 24px;border-radius:8px;text-decoration:none;">
+               style="display:inline-block;background:#00C9A7;color:#032b2c;font-size:14px;font-weight:700;
+                      padding:12px 24px;border-radius:10px;text-decoration:none;border:1px solid #36e0c6;box-shadow:0 0 0 1px rgba(0,201,167,0.2) inset;">
               Passwort festlegen
             </a>
-            <p style="color:#9ca3af;font-size:12px;margin-top:32px;">
+            <p style="color:#94a3b8;font-size:12px;line-height:1.6;margin-top:32px;">
               Falls du diesen Link nicht angefordert hast, kannst du diese E-Mail ignorieren.<br/>
               Der Link ist 24 Stunden gültig.
             </p>
