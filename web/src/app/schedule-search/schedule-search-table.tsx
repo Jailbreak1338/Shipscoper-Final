@@ -44,7 +44,7 @@ export default function ScheduleSearchTable({
   rows: SearchRow[];
   initialShipmentByVessel: ShipmentMap;
   initialContainerByVessel: ShipmentMap;
-  initialListSourceByVessel: Record<string, string>;
+  initialListSourceByVessel: Record<string, string[]>;
   initialSnrFilter?: string;
 }) {
   const router = useRouter();
@@ -52,7 +52,7 @@ export default function ScheduleSearchTable({
   const [shipmentByVessel] = useState<ShipmentMap>(initialShipmentByVessel);
   const [containerByVessel] = useState<ShipmentMap>(initialContainerByVessel);
   const [snrFilter, setSnrFilter] = useState(initialSnrFilter ?? '');
-  const [listSourceByVessel] = useState<Record<string, string>>(initialListSourceByVessel);
+  const [listSourceByVessel] = useState<Record<string, string[]>>(initialListSourceByVessel);
   const [listSourceFilter, setListSourceFilter] = useState('');
   const [onlyUnassigned, setOnlyUnassigned] = useState(false);
   const [onlyWithSnr, setOnlyWithSnr] = useState(false);
@@ -84,16 +84,17 @@ export default function ScheduleSearchTable({
       const vesselShipments = shipmentByVessel[row.vessel_name_normalized] ?? [];
       if (onlyUnassigned && vesselShipments.length > 0) return false;
       if (onlyWithSnr && vesselShipments.length === 0) return false;
-      const listSource = listSourceByVessel[row.vessel_name_normalized] ?? 'UNSET';
-      if (listSourceFilter && listSource !== listSourceFilter) return false;
+      const listSources = listSourceByVessel[row.vessel_name_normalized] ?? ['UNSET'];
+      if (listSourceFilter && !listSources.includes(listSourceFilter)) return false;
       if (!q) return true;
       return vesselShipments.some((snr) => snr.toLowerCase().includes(q));
     });
   }, [rows, shipmentByVessel, snrFilter, onlyUnassigned, onlyWithSnr, listSourceByVessel, listSourceFilter]);
 
-  const listSourceOptions = useMemo(() => [
-    ...new Set(Object.values(listSourceByVessel).map((v) => v || 'UNSET').concat('UNSET')),
-  ].sort(), [listSourceByVessel]);
+  const listSourceOptions = useMemo(() => {
+    const flattened = Object.values(listSourceByVessel).flatMap((arr) => arr.length > 0 ? arr : ['UNSET']);
+    return [...new Set(flattened.concat('UNSET'))].sort();
+  }, [listSourceByVessel]);
 
   return (
     <div className="space-y-3">
@@ -235,7 +236,15 @@ export default function ScheduleSearchTable({
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="text-xs">{listSourceByVessel[key] ?? '—'}</Badge>
+                      {(listSourceByVessel[key] ?? []).length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {(listSourceByVessel[key] ?? []).map((src) => (
+                            <Badge key={src} variant="outline" className="text-xs">{src}</Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <Badge variant="outline" className="text-xs">—</Badge>
+                      )}
                     </TableCell>
                   </TableRow>
                 );

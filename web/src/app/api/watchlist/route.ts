@@ -12,6 +12,12 @@ function parseShipmentRefs(input: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+
+function normalizeOptionalText(input: unknown): string | null {
+  const value = String(input ?? '').trim();
+  return value || null;
+}
+
 function normalizeContainerSource(input: unknown): 'HHLA' | 'EUROGATE' | 'AUTO' | null {
   const value = String(input ?? '').trim().toUpperCase();
   if (!value) return null;
@@ -148,8 +154,8 @@ export async function POST(request: NextRequest) {
   const shipmentReference = (body.shipmentReference ?? '').trim() || null;
   const containerSource = normalizeContainerSource(body.containerSource);
   const shipmentMode = normalizeShipmentMode(body.shipmentMode);
-  const shipperSource = String(body.shipperSource ?? '').trim() || null;
-  const containerReference = String(body.containerReference ?? '').trim() || null;
+  const shipperSource = normalizeOptionalText(body.shipperSource);
+  const containerReference = normalizeOptionalText(body.containerReference);
 
   if (!vesselName) {
     return NextResponse.json(
@@ -267,71 +273,82 @@ export async function POST(request: NextRequest) {
             { status: 409 }
           );
         }
+      }
 
-        const merged = Array.from(
-          new Set(
-            parseShipmentRefs(existing.shipment_reference).concat(shipmentReference)
-          )
-        ).join(', ');
+      const merged = Array.from(
+        new Set(
+          parseShipmentRefs(existing.shipment_reference).concat(shipmentReference ?? [])
+        )
+      ).join(', ');
 
-        if (merged !== (existing.shipment_reference || '')) {
-          let updated: Record<string, unknown> | null = null;
-          let updateErr: { message?: string } | null = null;
+      const desiredMode = shipmentMode;
+      const desiredShipper = shipperSource;
+      const desiredContainerSource = containerSource;
+      const desiredContainerReference = containerReference ?? existing.container_reference ?? null;
 
-          {
-            const withNewCols = await supabase
+      const metadataChanged =
+        (existing.shipment_mode ?? null) !== desiredMode ||
+        (existing.shipper_source ?? null) !== desiredShipper ||
+        (existing.container_source ?? null) !== desiredContainerSource ||
+        (existing.container_reference ?? null) !== desiredContainerReference ||
+        (existing.shipment_reference || '') !== merged;
+
+      if (metadataChanged) {
+        let updated: Record<string, unknown> | null = null;
+        let updateErr: { message?: string } | null = null;
+
+        {
+          const withNewCols = await supabase
+            .from('vessel_watches')
+            .update({
+              shipment_reference: merged,
+              shipment_mode: desiredMode,
+              shipper_source: desiredShipper,
+              container_source: desiredContainerSource,
+              container_reference: desiredContainerReference,
+            })
+            .eq('id', existing.id)
+            .select()
+            .single();
+
+          if (withNewCols.error?.message?.includes('shipper_source') || withNewCols.error?.message?.includes('shipment_mode')) {
+            const fallback = await supabase
               .from('vessel_watches')
               .update({
                 shipment_reference: merged,
-                shipment_mode: shipmentMode,
-                shipper_source: shipperSource,
-                container_source: containerSource,
-                container_reference: containerReference ?? existing.container_reference,
+                container_source: desiredContainerSource,
+                container_reference: desiredContainerReference,
               })
               .eq('id', existing.id)
               .select()
               .single();
-
-            if (withNewCols.error?.message?.includes('shipper_source') || withNewCols.error?.message?.includes('shipment_mode')) {
-              const fallback = await supabase
-                .from('vessel_watches')
-                .update({
-                  shipment_reference: merged,
-                  container_source: containerSource,
-                  container_reference: containerReference ?? existing.container_reference,
-                })
-                .eq('id', existing.id)
-                .select()
-                .single();
-              updated = (fallback.data as Record<string, unknown> | null) ?? null;
-              updateErr = fallback.error as { message?: string } | null;
-            } else {
-              updated = (withNewCols.data as Record<string, unknown> | null) ?? null;
-              updateErr = withNewCols.error as { message?: string } | null;
-            }
+            updated = (fallback.data as Record<string, unknown> | null) ?? null;
+            updateErr = fallback.error as { message?: string } | null;
+          } else {
+            updated = (withNewCols.data as Record<string, unknown> | null) ?? null;
+            updateErr = withNewCols.error as { message?: string } | null;
           }
-
-          if (updateErr) {
-            console.error('Failed to update shipment reference on existing watch:', updateErr);
-            return NextResponse.json({ error: updateErr.message }, { status: 500 });
-          }
-
-          // Email: watch updated with new S-Nr.
-          if (session.user.email) {
-            sendResendEmail({
-              to: session.user.email,
-              subject: `Watch aktualisiert: ${vesselName}`,
-              html: buildWatchlistEmail({
-                vesselName,
-                shipmentReference: shipmentReference,
-                eta: currentEta,
-                isUpdate: true,
-              }),
-            }).catch((e) => console.error('[watchlist] email error:', e));
-          }
-
-          return NextResponse.json({ watch: updated, updatedExisting: true }, { status: 200 });
         }
+
+        if (updateErr) {
+          console.error('Failed to update shipment reference on existing watch:', updateErr);
+          return NextResponse.json({ error: updateErr.message }, { status: 500 });
+        }
+
+        if (session.user.email) {
+          sendResendEmail({
+            to: session.user.email,
+            subject: `Watch aktualisiert: ${vesselName}`,
+            html: buildWatchlistEmail({
+              vesselName,
+              shipmentReference: shipmentReference,
+              eta: currentEta,
+              isUpdate: true,
+            }),
+          }).catch((e) => console.error('[watchlist] email error:', e));
+        }
+
+        return NextResponse.json({ watch: updated, updatedExisting: true }, { status: 200 });
       }
 
       return NextResponse.json({ watch: existing, updatedExisting: false }, { status: 200 });
