@@ -45,6 +45,9 @@ interface Watch {
   vessel_name: string;
   vessel_name_normalized: string;
   shipment_reference: string | null;
+  container_source: 'HHLA' | 'EUROGATE' | 'AUTO' | null;
+  shipper_source: string | null;
+  shipment_mode: 'LCL' | 'FCL' | null;
   container_reference: string | null;
   last_known_eta: string | null;
   notification_enabled: boolean;
@@ -79,6 +82,12 @@ export default function WatchlistPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [vesselName, setVesselName] = useState('');
+  const [shipmentReference, setShipmentReference] = useState('');
+  const [shipperSource, setShipperSource] = useState('');
+  const [shipmentMode, setShipmentMode] = useState<'LCL' | 'FCL'>('LCL');
+  const [containerRefInput, setContainerRefInput] = useState('');
+  const [containerSource, setContainerSource] = useState<'HHLA' | 'EUROGATE' | 'AUTO'>('AUTO');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState('');
@@ -93,7 +102,9 @@ export default function WatchlistPage() {
       const res = await fetch('/api/watchlist');
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to load watchlist');
-      setWatches(json.watches ?? []);
+      const nextWatches = (json.watches ?? []) as Watch[];
+      setWatches(nextWatches);
+      setSelectedIds((prev) => prev.filter((id) => nextWatches.some((w) => w.id === id)));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load watchlist');
     } finally {
@@ -130,7 +141,8 @@ export default function WatchlistPage() {
       return (
         watch.vessel_name.toLowerCase().includes(q) ||
         (watch.shipment_reference || '').toLowerCase().includes(q) ||
-        (watch.container_reference || '').toLowerCase().includes(q)
+        (watch.container_reference || '').toLowerCase().includes(q) ||
+        (watch.shipper_source || '').toLowerCase().includes(q)
       );
     })
     .sort((a, b) => {
@@ -149,7 +161,14 @@ export default function WatchlistPage() {
       const res = await fetch('/api/watchlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vesselName: vesselName.trim() }),
+        body: JSON.stringify({
+          vesselName: vesselName.trim(),
+          shipmentReference: shipmentReference.trim(),
+          shipperSource: shipperSource.trim(),
+          shipmentMode,
+          containerReference: shipmentMode === 'FCL' ? containerRefInput.trim() : '',
+          containerSource,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to add vessel');
@@ -159,6 +178,11 @@ export default function WatchlistPage() {
         return [json.watch, ...prev];
       });
       setVesselName('');
+      setShipmentReference('');
+      setShipperSource('');
+      setShipmentMode('LCL');
+      setContainerRefInput('');
+      setContainerSource('AUTO');
       setSuggestions([]);
       setShowSuggestions(false);
     } catch (err: unknown) {
@@ -191,6 +215,38 @@ export default function WatchlistPage() {
       setWatches((prev) => prev.filter((w) => w.id !== id));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to delete');
+    }
+  };
+
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const toggleSelectAllFiltered = () => {
+    const filteredIds = filteredWatches.map((w) => w.id);
+    const allSelected = filteredIds.length > 0 && filteredIds.every((id) => selectedIds.includes(id));
+    setSelectedIds((prev) => {
+      if (allSelected) return prev.filter((id) => !filteredIds.includes(id));
+      return [...new Set([...prev, ...filteredIds])];
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (!confirm(`${selectedIds.length} Einträge von der Watchlist entfernen?`)) return;
+    try {
+      const res = await fetch('/api/watchlist', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedIds }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Bulk delete fehlgeschlagen');
+      setWatches((prev) => prev.filter((w) => !selectedIds.includes(w.id)));
+      setSelectedIds([]);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Bulk delete fehlgeschlagen');
     }
   };
 
@@ -309,7 +365,50 @@ export default function WatchlistPage() {
                   </div>
                 )}
               </div>
-              <Button type="submit" disabled={adding || !vesselName.trim()}>
+              <Input
+                type="text"
+                placeholder="S-Nr. (Pflicht)"
+                value={shipmentReference}
+                onChange={(e) => setShipmentReference(e.target.value)}
+                className="w-48"
+                required
+              />
+              <Input
+                type="text"
+                placeholder="Source / Shipper (z.B. Ziehl-Abegg)"
+                value={shipperSource}
+                onChange={(e) => setShipperSource(e.target.value)}
+                className="w-56"
+              />
+              <select
+                title="Mode"
+                value={shipmentMode}
+                onChange={(e) => setShipmentMode(e.target.value as 'LCL' | 'FCL')}
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+              >
+                <option value="LCL">LCL (Stückgut)</option>
+                <option value="FCL">FCL (Container)</option>
+              </select>
+              {shipmentMode === 'FCL' && (
+                <Input
+                  type="text"
+                  placeholder="Container (optional/manuell)"
+                  value={containerRefInput}
+                  onChange={(e) => setContainerRefInput(e.target.value)}
+                  className="w-48"
+                />
+              )}
+              <select
+                title="Source"
+                value={containerSource}
+                onChange={(e) => setContainerSource(e.target.value as 'HHLA' | 'EUROGATE' | 'AUTO')}
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+              >
+                <option value="AUTO">Auto</option>
+                <option value="HHLA">HHLA</option>
+                <option value="EUROGATE">Eurogate</option>
+              </select>
+              <Button type="submit" disabled={adding || !vesselName.trim() || !shipmentReference.trim()}>
                 {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                 Hinzufügen
               </Button>
@@ -326,6 +425,16 @@ export default function WatchlistPage() {
               <CardTitle className="text-base">Meine Watchlist</CardTitle>
               <CardDescription>{watches.length} Vessels beobachtet</CardDescription>
             </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleBulkDelete}
+                disabled={selectedIds.length === 0}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Bulk löschen ({selectedIds.length})
+              </Button>
             <div className="relative w-64">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <Input
@@ -336,6 +445,7 @@ export default function WatchlistPage() {
                 className="pl-8 h-8 text-sm"
               />
             </div>
+          </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -356,9 +466,18 @@ export default function WatchlistPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10">
+                    <input
+                      type="checkbox"
+                      checked={filteredWatches.length > 0 && filteredWatches.every((w) => selectedIds.includes(w.id))}
+                      onChange={toggleSelectAllFiltered}
+                    />
+                  </TableHead>
                   <TableHead>Vessel</TableHead>
                   <TableHead>Sendung</TableHead>
                   <TableHead>Container</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead>Mode</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Letzte ETA</TableHead>
                   <TableHead>Benachrichtigung</TableHead>
@@ -369,6 +488,13 @@ export default function WatchlistPage() {
               <TableBody>
                 {filteredWatches.map((watch) => (
                   <TableRow key={watch.id}>
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(watch.id)}
+                        onChange={() => toggleSelected(watch.id)}
+                      />
+                    </TableCell>
                     <TableCell className="font-semibold">{watch.vessel_name}</TableCell>
                     <TableCell>
                       {watch.shipment_reference ? (
@@ -389,6 +515,12 @@ export default function WatchlistPage() {
                       ) : (
                         <span className="text-muted-foreground text-xs">—</span>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">{watch.shipper_source ?? watch.container_source ?? '—'}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className="text-xs">{watch.shipment_mode ?? (watch.container_reference ? 'FCL' : 'LCL')}</Badge>
                     </TableCell>
                     <TableCell>
                       {watch.container_reference ? (
