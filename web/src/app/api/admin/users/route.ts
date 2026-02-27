@@ -181,14 +181,7 @@ export async function POST(req: NextRequest) {
 
     // Existing emails: use recovery link; new emails: invite link.
     // This avoids flaky AuthApiError('Database error saving new user') on duplicate/inconsistent invite attempts.
-    const { userId, inviteUrl, reusedExistingUser } = await getInviteLinkAndUserId(supabaseAdmin, email);
-
-    const invitedUserId = linkData?.user?.id;
-    const inviteUrl = linkData?.properties?.action_link;
-
-    if (!invitedUserId || !inviteUrl) {
-      throw new Error('Database error saving new user. Missing invite payload from auth service.');
-    }
+    const { userId, inviteUrl: inviteActionUrl, reusedExistingUser } = await getInviteLinkAndUserId(supabaseAdmin, email);
 
     // Assign role (trigger may have already created a 'user' row)
     const { error: roleError } = await supabaseAdmin
@@ -217,7 +210,7 @@ export async function POST(req: NextRequest) {
             <p style="color:#6b7280;font-size:14px;margin-bottom:24px;">
               Klicke auf den Button unten, um dein Passwort festzulegen und deinen Account zu aktivieren.
             </p>
-            <a href="${inviteUrl}"
+            <a href="${inviteActionUrl}"
                style="display:inline-block;background:#0f172a;color:#fff;font-size:14px;font-weight:600;
                       padding:12px 24px;border-radius:8px;text-decoration:none;">
               Passwort festlegen
