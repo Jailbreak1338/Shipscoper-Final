@@ -81,6 +81,25 @@ async function getInviteLinkAndUserId(
   return { userId: invitedUserId, inviteUrl, reusedExistingUser: false };
 }
 
+
+function getAppBaseUrl(): string {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.APP_URL ||
+    'https://www.shipscoper.com'
+  ).replace(/\/$/, '');
+}
+
+function withRedirectTo(actionLink: string): string {
+  try {
+    const url = new URL(actionLink);
+    url.searchParams.set('redirect_to', `${getAppBaseUrl()}/auth/callback`);
+    return url.toString();
+  } catch {
+    return actionLink;
+  }
+}
+
 async function isAdmin(userId: string): Promise<boolean> {
   // Use service-role client to bypass RLS for the role check
   const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
@@ -182,6 +201,7 @@ export async function POST(req: NextRequest) {
     // Existing emails: use recovery link; new emails: invite link.
     // This avoids flaky AuthApiError('Database error saving new user') on duplicate/inconsistent invite attempts.
     const { userId, inviteUrl: inviteActionUrl, reusedExistingUser } = await getInviteLinkAndUserId(supabaseAdmin, email);
+    const inviteLink = withRedirectTo(inviteActionUrl);
 
     // Assign role (trigger may have already created a 'user' row)
     const { error: roleError } = await supabaseAdmin
@@ -210,7 +230,7 @@ export async function POST(req: NextRequest) {
             <p style="color:#6b7280;font-size:14px;margin-bottom:24px;">
               Klicke auf den Button unten, um dein Passwort festzulegen und deinen Account zu aktivieren.
             </p>
-            <a href="${inviteActionUrl}"
+            <a href="${inviteLink}"
                style="display:inline-block;background:#0f172a;color:#fff;font-size:14px;font-weight:600;
                       padding:12px 24px;border-radius:8px;text-decoration:none;">
               Passwort festlegen
