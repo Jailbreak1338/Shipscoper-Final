@@ -13,6 +13,47 @@ function parseShipmentRefs(input: string | null | undefined): string[] {
 }
 
 
+
+function buildShipmentSourceLines(rows: Array<{ shipment_reference: string | null; shipper_source?: string | null; container_source?: string | null }>): Array<{ shipmentReference: string; source: string | null }> {
+  const out: Array<{ shipmentReference: string; source: string | null }> = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const source = String(row.shipper_source ?? row.container_source ?? '').trim() || null;
+    for (const ref of parseShipmentRefs(row.shipment_reference)) {
+      const key = `${ref}::${source ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ shipmentReference: ref, source });
+    }
+  }
+  return out;
+}
+
+async function loadShipmentSourceLines(
+  supabase: ReturnType<typeof createRouteHandlerClient>,
+  userId: string,
+  normalizedVessel: string
+): Promise<Array<{ shipmentReference: string; source: string | null }>> {
+  const withSource = await supabase
+    .from('vessel_watches')
+    .select('shipment_reference, shipper_source, container_source')
+    .eq('user_id', userId)
+    .eq('vessel_name_normalized', normalizedVessel);
+
+  if (withSource.error?.message?.includes('shipper_source')) {
+    const fallback = await supabase
+      .from('vessel_watches')
+      .select('shipment_reference, container_source')
+      .eq('user_id', userId)
+      .eq('vessel_name_normalized', normalizedVessel);
+    if (fallback.error) return [];
+    return buildShipmentSourceLines((fallback.data ?? []) as Array<{ shipment_reference: string | null; container_source?: string | null }>);
+  }
+
+  if (withSource.error) return [];
+  return buildShipmentSourceLines((withSource.data ?? []) as Array<{ shipment_reference: string | null; shipper_source?: string | null; container_source?: string | null }>);
+}
+
 function normalizeOptionalText(input: unknown): string | null {
   const value = String(input ?? '').trim();
   return value || null;
@@ -349,6 +390,7 @@ export async function POST(request: NextRequest) {
         }
 
         if (session.user.email) {
+          const shipmentSourceLines = await loadShipmentSourceLines(supabase, session.user.id, normalized);
           sendResendEmail({
             to: session.user.email,
             subject: `Watch aktualisiert: ${vesselName}`,
@@ -357,6 +399,9 @@ export async function POST(request: NextRequest) {
               shipmentReference: shipmentReference,
               eta: currentEta,
               isUpdate: true,
+              source: shipperSource ?? containerSource,
+              mode: shipmentMode,
+              shipmentSourceLines,
             }),
           }).catch((e) => console.error('[watchlist] email error:', e));
         }
@@ -372,6 +417,7 @@ export async function POST(request: NextRequest) {
 
   // Email: new watch created
   if (session.user.email) {
+    const shipmentSourceLines = await loadShipmentSourceLines(supabase, session.user.id, normalized);
     sendResendEmail({
       to: session.user.email,
       subject: `Watch aktiviert: ${vesselName}`,
@@ -380,6 +426,9 @@ export async function POST(request: NextRequest) {
         shipmentReference,
         eta: currentEta,
         isUpdate: false,
+        source: shipperSource ?? containerSource,
+        mode: shipmentMode,
+        shipmentSourceLines,
       }),
     }).catch((e) => console.error('[watchlist] email error:', e));
   }

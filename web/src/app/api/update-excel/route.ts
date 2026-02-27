@@ -50,8 +50,14 @@ async function autoAssignShipmentsFromUpload(params: {
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
 
+  const sourceKey = (params.listName ?? '').trim().toLowerCase() || null;
+  const watchKey = (normalizedVesselName: string, normalizedSourceKey: string | null): string =>
+    `${normalizedVesselName}::${normalizedSourceKey ?? ''}`;
+
   const CONTAINER_RE = /^[A-Z]{4}[0-9]{7}$/;
   const assignmentByVessel = new Map<string, {
+    vesselNormalized: string;
+    sourceKey: string | null;
     vesselName: string;
     refs: Set<string>;
     containers: Set<string>;
@@ -65,7 +71,10 @@ async function autoAssignShipmentsFromUpload(params: {
     if (refs.length === 0) continue;
 
     const normalized = normalizeVesselName(vesselRaw);
-    const existing = assignmentByVessel.get(normalized) ?? {
+    const key = watchKey(normalized, sourceKey);
+    const existing = assignmentByVessel.get(key) ?? {
+      vesselNormalized: normalized,
+      sourceKey,
       vesselName: vesselRaw,
       refs: new Set<string>(),
       containers: new Set<string>(),
@@ -90,7 +99,7 @@ async function autoAssignShipmentsFromUpload(params: {
       }
     }
 
-    assignmentByVessel.set(normalized, existing);
+    assignmentByVessel.set(key, existing);
   }
 
   if (assignmentByVessel.size === 0) {
@@ -100,27 +109,50 @@ async function autoAssignShipmentsFromUpload(params: {
   const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
   const admin = getSupabaseAdmin();
 
-  const { data: existingRows, error: existingError } = await admin
-    .from('vessel_watches')
-    .select('id, vessel_name_normalized, shipment_reference, container_reference')
-    .eq('user_id', params.userId);
+  let existingRows: Array<{
+    id: string;
+    vessel_name_normalized: string;
+    shipment_reference: string | null;
+    container_reference: string | null;
+    shipper_source?: string | null;
+  }> = [];
 
-  if (existingError) {
-    console.error('autoAssignShipmentsFromUpload: failed to fetch existing rows', existingError);
-    return { updatedCount: 0, skippedConflicts: 0 };
+  {
+    const withSource = await admin
+      .from('vessel_watches')
+      .select('id, vessel_name_normalized, shipment_reference, container_reference, shipper_source')
+      .eq('user_id', params.userId);
+
+    if (withSource.error?.message?.includes('shipper_source')) {
+      const fallback = await admin
+        .from('vessel_watches')
+        .select('id, vessel_name_normalized, shipment_reference, container_reference')
+        .eq('user_id', params.userId);
+      if (fallback.error) {
+        console.error('autoAssignShipmentsFromUpload: failed to fetch existing rows', fallback.error);
+        return { updatedCount: 0, skippedConflicts: 0 };
+      }
+      existingRows = (fallback.data ?? []) as typeof existingRows;
+    } else if (withSource.error) {
+      console.error('autoAssignShipmentsFromUpload: failed to fetch existing rows', withSource.error);
+      return { updatedCount: 0, skippedConflicts: 0 };
+    } else {
+      existingRows = (withSource.data ?? []) as typeof existingRows;
+    }
   }
 
   const existingByVessel = new Map<string, { id: string; refs: Set<string>; containers: Set<string> }>();
   const ownerByShipmentRef = new Map<string, string>();
   for (const row of existingRows ?? []) {
-    const key = String(row.vessel_name_normalized);
+    const rowSourceKey = String(row.shipper_source ?? '').trim().toLowerCase() || null;
+    const key = watchKey(String(row.vessel_name_normalized), rowSourceKey);
     const refs = new Set(parseShipmentRefs(row.shipment_reference));
     const containers = new Set(parseShipmentRefs(row.container_reference));
     if (assignmentByVessel.has(key) && !existingByVessel.has(key)) {
       existingByVessel.set(key, { id: String(row.id), refs, containers });
     }
     for (const ref of refs) {
-      ownerByShipmentRef.set(ref, key);
+      ownerByShipmentRef.set(ref, String(row.vessel_name_normalized));
     }
   }
 
@@ -128,14 +160,14 @@ async function autoAssignShipmentsFromUpload(params: {
   let skippedConflicts = 0;
 
   const fileOwnerByRef = new Map<string, string>();
-  for (const [normalized, payload] of assignmentByVessel.entries()) {
+  for (const [, payload] of assignmentByVessel.entries()) {
     for (const ref of payload.refs) {
       const prev = fileOwnerByRef.get(ref);
-      if (prev && prev !== normalized) {
+      if (prev && prev !== payload.vesselNormalized) {
         payload.refs.delete(ref);
         skippedConflicts += 1;
       } else {
-        fileOwnerByRef.set(ref, normalized);
+        fileOwnerByRef.set(ref, payload.vesselNormalized);
       }
     }
   }
@@ -153,10 +185,10 @@ async function autoAssignShipmentsFromUpload(params: {
     shipment_mode?: 'LCL' | 'FCL';
   }> = [];
 
-  for (const [normalized, payload] of assignmentByVessel.entries()) {
+  for (const [assignmentKey, payload] of assignmentByVessel.entries()) {
     const refs = Array.from(payload.refs).filter((ref) => {
       const owner = ownerByShipmentRef.get(ref);
-      if (!owner || owner === normalized) return true;
+      if (!owner || owner === payload.vesselNormalized) return true;
       skippedConflicts += 1;
       return false;
     });
@@ -166,13 +198,13 @@ async function autoAssignShipmentsFromUpload(params: {
       ? Array.from(payload.containers).join(', ')
       : null;
 
-    const existing = existingByVessel.get(normalized);
+    const existing = existingByVessel.get(assignmentKey);
 
     if (!existing) {
       inserts.push({
         user_id: params.userId,
         vessel_name: payload.vesselName,
-        vessel_name_normalized: normalized,
+        vessel_name_normalized: payload.vesselNormalized,
         shipment_reference: refs.join(', '),
         container_reference: containerRef,
         container_snr_pairs: payload.pairs.length > 0 ? payload.pairs : null,
