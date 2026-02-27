@@ -100,6 +100,25 @@ function withRedirectTo(actionLink: string): string {
   }
 }
 
+<<<<<<< s0ffpq-codex/conduct-environment-analysis-before-changes
+
+function buildPasswordSetupLink(actionLink: string, type: 'invite' | 'recovery'): string {
+  const fallback = withRedirectTo(actionLink);
+  try {
+    const parsed = new URL(actionLink);
+    const tokenHash = parsed.searchParams.get('token_hash') || parsed.searchParams.get('token');
+    if (!tokenHash) return fallback;
+    const callback = new URL('/auth/callback', getAppBaseUrl());
+    callback.searchParams.set('token_hash', tokenHash);
+    callback.searchParams.set('type', type);
+    return callback.toString();
+  } catch {
+    return fallback;
+  }
+}
+
+=======
+>>>>>>> codex
 async function isAdmin(userId: string): Promise<boolean> {
   // Use service-role client to bypass RLS for the role check
   const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
@@ -201,7 +220,11 @@ export async function POST(req: NextRequest) {
     // Existing emails: use recovery link; new emails: invite link.
     // This avoids flaky AuthApiError('Database error saving new user') on duplicate/inconsistent invite attempts.
     const { userId, inviteUrl: inviteActionUrl, reusedExistingUser } = await getInviteLinkAndUserId(supabaseAdmin, email);
+<<<<<<< s0ffpq-codex/conduct-environment-analysis-before-changes
+    const inviteLink = buildPasswordSetupLink(inviteActionUrl, reusedExistingUser ? 'recovery' : 'invite');
+=======
     const inviteLink = withRedirectTo(inviteActionUrl);
+>>>>>>> codex
 
     // Assign role (trigger may have already created a 'user' row)
     const { error: roleError } = await supabaseAdmin
