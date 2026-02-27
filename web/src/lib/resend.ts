@@ -92,6 +92,9 @@ export function buildWatchlistEmail(opts: {
   shipmentReference: string | null;
   eta: string | null;
   isUpdate: boolean;
+  source?: string | null;
+  mode?: 'LCL' | 'FCL' | string | null;
+  shipmentSourceLines?: Array<{ shipmentReference: string; source: string | null }>;
 }): string {
   const etaFormatted = opts.eta
     ? new Date(opts.eta).toLocaleString('de-DE', {
@@ -104,10 +107,22 @@ export function buildWatchlistEmail(opts: {
       })
     : '—';
 
+
+  const sourceValue = (opts.source ?? '').trim() || '—';
+  const modeValue = String(opts.mode ?? '').trim().toUpperCase() || '—';
+  const shipmentSourceRows = (opts.shipmentSourceLines ?? [])
+    .filter((row) => row.shipmentReference)
+    .map((row) => {
+      const src = (row.source ?? '').trim() || '—';
+      return `
+      <tr>
+        <td style="padding:10px 14px;background:#f5f7fa;font-weight:600;border-bottom:1px solid #eee;">S-Nr. / Source</td>
+        <td style="padding:10px 14px;border-bottom:1px solid #eee;">${row.shipmentReference} (${src})</td>
+      </tr>`;
+    })
+    .join('');
+
   const action = opts.isUpdate ? 'aktualisiert' : 'aktiviert';
-  const subject = opts.isUpdate
-    ? `Watch aktualisiert: ${opts.vesselName}`
-    : `Watch aktiviert: ${opts.vesselName}`;
 
   const html = emailShell(`
     <h2 style="margin:0 0 8px;font-size:20px;color:#1a1a2e;">
@@ -122,11 +137,19 @@ export function buildWatchlistEmail(opts: {
         <td style="padding:10px 14px;background:#f5f7fa;font-weight:600;width:40%;border-bottom:1px solid #eee;">Schiff</td>
         <td style="padding:10px 14px;border-bottom:1px solid #eee;">${opts.vesselName}</td>
       </tr>
-      ${opts.shipmentReference ? `
+      ${shipmentSourceRows || (opts.shipmentReference ? `
       <tr>
         <td style="padding:10px 14px;background:#f5f7fa;font-weight:600;border-bottom:1px solid #eee;">S-Nr.</td>
         <td style="padding:10px 14px;border-bottom:1px solid #eee;">${opts.shipmentReference}</td>
-      </tr>` : ''}
+      </tr>` : '')}
+      <tr>
+        <td style="padding:10px 14px;background:#f5f7fa;font-weight:600;border-bottom:1px solid #eee;">Source</td>
+        <td style="padding:10px 14px;border-bottom:1px solid #eee;">${sourceValue}</td>
+      </tr>
+      <tr>
+        <td style="padding:10px 14px;background:#f5f7fa;font-weight:600;border-bottom:1px solid #eee;">Mode</td>
+        <td style="padding:10px 14px;border-bottom:1px solid #eee;">${modeValue}</td>
+      </tr>
       <tr>
         <td style="padding:10px 14px;background:#f5f7fa;font-weight:600;">Aktuelle ETA</td>
         <td style="padding:10px 14px;color:${opts.eta ? '#00876a' : '#999'};font-weight:${opts.eta ? '600' : '400'};">
