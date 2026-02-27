@@ -5,6 +5,8 @@ const roots = ['src'];
 const exts = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
 const bad = [];
 
+const CONFLICT_RE = /^(<{7}|={7}|>{7})(?:\s|$)/m;
+
 function walk(dir) {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
@@ -17,7 +19,7 @@ function walk(dir) {
     const ext = dot >= 0 ? p.slice(dot) : '';
     if (!exts.has(ext)) continue;
     const txt = readFileSync(p, 'utf8');
-    if (txt.includes('<<<<<<<') || txt.includes('=======') || txt.includes('>>>>>>>')) {
+    if (CONFLICT_RE.test(txt)) {
       bad.push(p);
     }
   }
