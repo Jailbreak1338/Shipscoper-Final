@@ -13,6 +13,29 @@ const updateRoleSchema = z.object({
   role: z.enum(['admin', 'user']),
 });
 
+function mapCreateUserError(error: unknown): { status: number; message: string } {
+  const message = error instanceof Error ? error.message : String(error);
+  const lower = message.toLowerCase();
+
+  if (lower.includes('already') || lower.includes('exists') || lower.includes('duplicate') || lower.includes('23505')) {
+    return { status: 409, message: 'Benutzer existiert bereits.' };
+  }
+
+  if (lower.includes('invalid') || lower.includes('email')) {
+    return { status: 400, message: 'Ungültige E-Mail-Adresse.' };
+  }
+
+  if (lower.includes('resend') || lower.includes('e-mail')) {
+    return { status: 502, message: 'Einladung erstellt, aber E-Mail-Versand fehlgeschlagen.' };
+  }
+
+  if (lower.includes('user_roles') || lower.includes('database') || lower.includes('relation')) {
+    return { status: 500, message: 'Database error saving new user.' };
+  }
+
+  return { status: 500, message: 'Benutzer konnte nicht angelegt werden.' };
+}
+
 async function isAdmin(userId: string): Promise<boolean> {
   // Use service-role client to bypass RLS for the role check
   const { getSupabaseAdmin } = await import('@/lib/supabaseServer');
@@ -120,22 +143,28 @@ export async function POST(req: NextRequest) {
 
     if (linkError) throw linkError;
 
+    const invitedUserId = linkData?.user?.id;
+    const inviteUrl = linkData?.properties?.action_link;
+
+    if (!invitedUserId || !inviteUrl) {
+      throw new Error('Database error saving new user. Missing invite payload from auth service.');
+    }
+
     // Assign role (trigger may have already created a 'user' row)
     const { error: roleError } = await supabaseAdmin
       .from('user_roles')
       .upsert(
-        { user_id: linkData.user.id, role, updated_at: new Date().toISOString() },
+        { user_id: invitedUserId, role, updated_at: new Date().toISOString() },
         { onConflict: 'user_id' }
       );
 
     if (roleError) throw roleError;
 
     // Send invite email via Resend from hello@shipscoper.com
-    const inviteUrl = linkData.properties.action_link;
     const resendRes = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        'Authorization': `Bearer ${process.env.RESEND_API_KEY ?? ''}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -162,7 +191,7 @@ export async function POST(req: NextRequest) {
       }),
     });
 
-    if (!resendRes.ok) {
+    if (!process.env.RESEND_API_KEY || !resendRes.ok) {
       const resendErr = await resendRes.text();
       console.error('Resend error:', resendErr);
       throw new Error('E-Mail konnte nicht gesendet werden');
@@ -170,12 +199,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      user: { id: linkData.user.id, email: linkData.user.email, role },
+      user: { id: invitedUserId, email: linkData?.user?.email ?? email, role },
     });
   } catch (error) {
     console.error('Error creating user:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const mapped = mapCreateUserError(error);
+    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
   }
 }
 
@@ -219,8 +248,8 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error updating role:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const mapped = mapCreateUserError(error);
+    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
   }
 }
 
@@ -266,7 +295,7 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting user:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const mapped = mapCreateUserError(error);
+    return NextResponse.json({ error: mapped.message }, { status: mapped.status });
   }
 }

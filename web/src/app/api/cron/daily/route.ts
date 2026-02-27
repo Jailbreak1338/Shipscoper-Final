@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getValidatedScraperUrl } from '@/lib/security';
+import { getValidatedScraperUrl, joinUrlPath } from '@/lib/security';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
 
   // 1. Trigger full scraper pipeline
   try {
-    const res = await fetch(`${scraperUrl}/webhook/run-scraper`, {
+    const res = await fetch(joinUrlPath(scraperUrl, '/webhook/run-scraper'), {
       method: 'POST',
       headers,
     });
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
 
   // 2. Trigger container status check
   try {
-    const res = await fetch(`${scraperUrl}/webhook/check-containers`, {
+    const res = await fetch(joinUrlPath(scraperUrl, '/webhook/check-containers'), {
       method: 'POST',
       headers,
       signal: AbortSignal.timeout(10_000),
