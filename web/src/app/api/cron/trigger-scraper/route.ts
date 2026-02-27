@@ -1,23 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getValidatedScraperUrl } from '@/lib/security';
+import { getValidatedScraperUrl, joinUrlPath } from '@/lib/security';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
-/**
- * GET /api/cron/trigger-scraper
- *
- * Called by Vercel Cron on a schedule. Forwards the request to the
- * Railway-hosted scraper API, which runs the full pipeline
- * (scrape → sync → ETA change detection → notifications).
- *
- * Env vars required:
- *   CRON_SECRET           – Vercel cron secret for auth
- *   RAILWAY_SCRAPER_URL   – e.g. https://eta-scraper.up.railway.app
- *   WEBHOOK_SECRET        – shared secret with the Railway scraper API
- */
 export async function GET(req: NextRequest) {
-  // Verify Vercel Cron auth
   const authHeader = req.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -31,7 +18,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const response = await fetch(`${scraperUrl}/webhook/run-scraper`, {
+    const endpoint = joinUrlPath(scraperUrl, '/webhook/run-scraper');
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'X-Webhook-Secret': webhookSecret },
     });
@@ -39,7 +27,10 @@ export async function GET(req: NextRequest) {
     const body = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      console.error('Cron trigger-scraper: scraper returned', response.status);
+      console.error('[cron/trigger-scraper] scraper returned', response.status, { endpoint });
+      if (response.status === 404) {
+        return NextResponse.json({ error: 'Scraper endpoint not found (404). Check base URL and webhook path.' }, { status: 502 });
+      }
       return NextResponse.json({ error: 'Scraper trigger failed' }, { status: 502 });
     }
 

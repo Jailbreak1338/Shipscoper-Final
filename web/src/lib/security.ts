@@ -108,3 +108,12 @@ export function getValidatedScraperUrl(raw: string | undefined): string | null {
     return null;
   }
 }
+
+/**
+ * Safe URL join for external service endpoints.
+ * Keeps base origin and normalizes duplicate/missing slashes.
+ */
+export function joinUrlPath(base: string, endpointPath: string): string {
+  const normalizedPath = endpointPath.startsWith('/') ? endpointPath : `/${endpointPath}`;
+  return `${base.replace(/\/+$/, '')}${normalizedPath}`;
+}

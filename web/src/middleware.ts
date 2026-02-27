@@ -88,7 +88,7 @@ export async function middleware(req: NextRequest) {
   const path = req.nextUrl.pathname;
 
   // Public paths (always allow)
-  const publicPaths = ['/login', '/_next', '/favicon.ico', '/api/health'];
+  const publicPaths = ['/login', '/auth/callback', '/set-password', '/_next', '/favicon.ico', '/api/health'];
   if (publicPaths.some((p) => path.startsWith(p))) {
     // If logged in and visiting /login, redirect to app
     if (path.startsWith('/login') && session) {
