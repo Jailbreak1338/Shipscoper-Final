@@ -1,19 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getValidatedScraperUrl } from '@/lib/security';
+import { getValidatedScraperUrl, joinUrlPath } from '@/lib/security';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * GET /api/cron/check-containers
- *
- * Called by Vercel Cron on schedule. Forwards to Railway /webhook/check-containers.
- * Protected by Vercel CRON_SECRET.
- *
- * Env vars required:
- *   CRON_SECRET          – Vercel cron secret (set automatically on Vercel)
- *   RAILWAY_SCRAPER_URL  – e.g. https://your-app.up.railway.app
- *   WEBHOOK_SECRET       – shared secret with Railway
- */
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -28,7 +17,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const response = await fetch(`${scraperUrl}/webhook/check-containers`, {
+    const endpoint = joinUrlPath(scraperUrl, '/webhook/check-containers');
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'X-Webhook-Secret': webhookSecret },
       signal: AbortSignal.timeout(10_000),
@@ -37,7 +27,10 @@ export async function GET(req: NextRequest) {
     const body = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      console.error('[cron/check-containers] scraper returned', response.status);
+      console.error('[cron/check-containers] scraper returned', response.status, { endpoint });
+      if (response.status === 404) {
+        return NextResponse.json({ error: 'Scraper endpoint not found (404). Check base URL and webhook path.' }, { status: 502 });
+      }
       return NextResponse.json({ error: 'Container check trigger failed' }, { status: 502 });
     }
 

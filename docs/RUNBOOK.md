@@ -42,7 +42,7 @@ npm run dev
 Optional:
 
 ```bash
-npm run build
+npm run build    # includes merge-conflict guard
 npm run start
 npm run generate-sample
 ```
@@ -98,6 +98,8 @@ Use:
 - `MAX_FILE_MB`
 - `TMP_TTL_MIN`
 - `NODE_ENV`
+- `NEXT_PUBLIC_SITE_URL`
+- `APP_URL`
 
 ## 4. Schedule (Final)
 
@@ -143,3 +145,58 @@ Mail workflow semantics:
 ## 7. External Ops Steps
 
 If environment/UI changes are needed outside the repo, follow `OPS-CHECKLIST.md`.
+
+
+## 8. Invite / Password-Setup Flow (Admin Users)
+
+If invited users land on `/login` or `/` instead of password setup, verify all of the following:
+
+1. Supabase Auth URL config:
+   - **Site URL** = `https://www.shipscoper.com`
+   - **Redirect URLs** include:
+     - `https://www.shipscoper.com/auth/callback`
+     - preview/staging callback URLs if used.
+2. Vercel env vars:
+   - `NEXT_PUBLIC_SITE_URL=https://www.shipscoper.com` (preferred)
+   - or `APP_URL=https://www.shipscoper.com`
+3. Deployment includes auth callback commits:
+   - `18164be` (auth callback + set-password page)
+   - `cb6aba3` (invite/recovery link normalization)
+4. Build guard should pass:
+   - `cd web && npm run build`
+   - first step prints `No merge conflict markers detected.`
+
+Quick validation after deploy:
+- Invite a new user from `/admin/users`.
+- Open email link and confirm redirect to `/auth/callback` then `/set-password`.
+- Set password and confirm automatic redirect to `/eta-updater`.
+
+
+## 9. Watchlist schema check (`shipper_source` / `shipment_mode`)
+
+If SQL like
+
+```sql
+select
+  count(*) as total,
+  count(shipper_source) as with_shipper_source
+from vessel_watches;
+```
+
+fails with `column "shipper_source" does not exist`, the migration was not applied in that environment yet.
+
+Apply these migrations in Supabase SQL editor (or your migration runner), in order:
+
+1. `migrations/20260227_watchlist_shipper_mode.sql`
+2. `migrations/20260227_watchlist_shipper_mode_repair.sql` (safe/idempotent fallback)
+
+Quick verification:
+
+```sql
+select column_name
+from information_schema.columns
+where table_schema = 'public'
+  and table_name = 'vessel_watches'
+  and column_name in ('shipper_source', 'shipment_mode', 'container_source')
+order by column_name;
+```
