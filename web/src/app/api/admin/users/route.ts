@@ -183,6 +183,13 @@ export async function POST(req: NextRequest) {
     // This avoids flaky AuthApiError('Database error saving new user') on duplicate/inconsistent invite attempts.
     const { userId, inviteUrl, reusedExistingUser } = await getInviteLinkAndUserId(supabaseAdmin, email);
 
+    const invitedUserId = linkData?.user?.id;
+    const inviteUrl = linkData?.properties?.action_link;
+
+    if (!invitedUserId || !inviteUrl) {
+      throw new Error('Database error saving new user. Missing invite payload from auth service.');
+    }
+
     // Assign role (trigger may have already created a 'user' row)
     const { error: roleError } = await supabaseAdmin
       .from('user_roles')
